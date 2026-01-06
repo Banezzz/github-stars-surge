@@ -23,23 +23,40 @@ python3 -m venv .venv
 
 ## 使用
 
-### 立即执行一次
+### 交互模式（推荐）
 ```bash
 .venv/bin/python main.py
 ```
+会显示菜单让你选择运行模式：
+```
+=== GitHub Trending Tracker ===
 
-### 守护进程模式（内置定时调度）
+Select mode:
+  1) Run once now
+  2) Start daemon (scheduled daily)
+  3) Start daemon + run once now
+  q) Quit
+```
+
+### 命令行模式
+
 ```bash
-# 默认每天 09:00 执行
+# 立即执行一次
+.venv/bin/python main.py --now
+
+# 守护进程模式（默认每天 09:00）
 .venv/bin/python main.py --daemon
 
-# 自定义执行时间（24小时制）
+# 自定义时间
 .venv/bin/python main.py --daemon --time 18:30
+
+# 启动时先执行一次，然后按计划调度
+.venv/bin/python main.py --daemon --now
 ```
 
 ### 后台运行
 ```bash
-nohup .venv/bin/python main.py --daemon > trending.log 2>&1 &
+nohup .venv/bin/python main.py --daemon --now > trending.log 2>&1 &
 ```
 
 ## Discord 消息格式
