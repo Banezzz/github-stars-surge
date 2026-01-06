@@ -321,16 +321,63 @@ def job():
     print("Job completed!")
 
 
-def run_scheduler(run_time: str = SCHEDULE_TIME):
+def run_scheduler(run_time: str = SCHEDULE_TIME, run_immediately: bool = False):
     """Run scheduler loop."""
-    print(f"Scheduler started. Will run daily at {run_time}")
-    print("Press Ctrl+C to stop.\n")
+    validate_config()
+
+    if run_immediately:
+        print("Running job immediately...")
+        job()
+        print()
 
     schedule.every().day.at(run_time).do(job)
+
+    # Calculate next run time
+    next_run = schedule.next_run()
+    print(f"Scheduler started. Will run daily at {run_time}")
+    print(f"Next scheduled run: {next_run}")
+    print("Press Ctrl+C to stop.\n")
 
     while True:
         schedule.run_pending()
         time.sleep(60)
+
+
+def interactive_menu():
+    """Interactive menu for configuration."""
+    print("\n=== GitHub Trending Tracker ===\n")
+
+    print("Select mode:")
+    print("  1) Run once now")
+    print("  2) Start daemon (scheduled daily)")
+    print("  3) Start daemon + run once now")
+    print("  q) Quit")
+
+    choice = input("\nChoice [1/2/3/q]: ").strip().lower()
+
+    if choice == "q":
+        print("Bye!")
+        sys.exit(0)
+    elif choice == "1":
+        job()
+    elif choice in ("2", "3"):
+        # Ask for schedule time
+        default_time = SCHEDULE_TIME
+        time_input = input(f"Schedule time (HH:MM) [{default_time}]: ").strip()
+        run_time = time_input if time_input else default_time
+
+        # Validate time format
+        try:
+            datetime.strptime(run_time, "%H:%M")
+        except ValueError:
+            print(f"Invalid time format: {run_time}. Use HH:MM (e.g., 09:00)")
+            sys.exit(1)
+
+        run_immediately = (choice == "3")
+        run_scheduler(run_time, run_immediately)
+    else:
+        print("Invalid choice")
+        sys.exit(1)
 
 
 def main():
@@ -345,12 +392,24 @@ def main():
         default=SCHEDULE_TIME,
         help=f"Schedule time in HH:MM format (default: {SCHEDULE_TIME})"
     )
+    parser.add_argument(
+        "--now", "-n",
+        action="store_true",
+        help="Run immediately before starting daemon (use with --daemon)"
+    )
     args = parser.parse_args()
 
-    if args.daemon:
-        run_scheduler(args.time)
-    else:
+    # If no arguments provided, enter interactive mode
+    if len(sys.argv) == 1:
+        interactive_menu()
+    elif args.daemon:
+        run_scheduler(args.time, args.now)
+    elif args.now:
+        # --now without --daemon: just run once
         job()
+    else:
+        # Fallback: show help
+        parser.print_help()
 
 
 if __name__ == "__main__":
