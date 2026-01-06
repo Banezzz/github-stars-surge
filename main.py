@@ -5,23 +5,38 @@ Fetches trending repos and developers, sends to Discord, tracks history locally.
 """
 
 import argparse
+import os
 import sqlite3
+import sys
 import time
 import requests
 import schedule
 from bs4 import BeautifulSoup
 from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv
 
-# Configuration
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1457746276463542314/VfwiXrVwAjR24oDKj3wfc7jMq8GAUcpTz_KKv-GQdOtl9c0nHQiEHuC_O8GjBw8iiYca"
-DB_PATH = Path(__file__).parent / "trending_history.db"
-GITHUB_BASE = "https://github.com"
-SCHEDULE_TIME = "09:00"  # 每天执行时间（24小时制）
+# Load environment variables from .env file
+load_dotenv()
+
+# Configuration (from environment variables)
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
+DB_PATH = Path(os.getenv("DB_PATH", Path(__file__).parent / "trending_history.db"))
+GITHUB_BASE = os.getenv("GITHUB_BASE", "https://github.com")
+SCHEDULE_TIME = os.getenv("SCHEDULE_TIME", "09:00")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
+
+
+def validate_config():
+    """Validate required configuration."""
+    if not DISCORD_WEBHOOK:
+        print("Error: DISCORD_WEBHOOK environment variable is required.")
+        print("Please set it in .env file or as environment variable.")
+        print("Example: DISCORD_WEBHOOK=https://discord.com/api/webhooks/...")
+        sys.exit(1)
 
 
 # ============== Database ==============
@@ -279,6 +294,7 @@ def format_devs_embed(developers: list) -> dict:
 # ============== Main ==============
 def job():
     """Execute trending fetch and send job."""
+    validate_config()
     print(f"\n[{datetime.now()}] Starting job...")
     init_db()
 
