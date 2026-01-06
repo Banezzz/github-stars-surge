@@ -40,62 +40,81 @@ def validate_config():
 
 
 # ============== Database ==============
+# 去重机制：日度、周度、月度分别使用独立的表进行去重
+TIME_RANGE_SUFFIXES = {
+    "daily": "_daily",
+    "weekly": "_weekly",
+    "monthly": "_monthly"
+}
+
+
 def init_db():
-    """Initialize SQLite database."""
+    """Initialize SQLite database with separate tables for each time range."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS repos (
-            name TEXT PRIMARY KEY,
-            description TEXT,
-            trending_count INTEGER DEFAULT 0,
-            last_seen DATE
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS developers (
-            username TEXT PRIMARY KEY,
-            trending_count INTEGER DEFAULT 0,
-            last_seen DATE
-        )
-    """)
+
+    # 为每个时间范围创建独立的表
+    for time_range, suffix in TIME_RANGE_SUFFIXES.items():
+        c.execute(f"""
+            CREATE TABLE IF NOT EXISTS repos{suffix} (
+                name TEXT PRIMARY KEY,
+                description TEXT,
+                trending_count INTEGER DEFAULT 0,
+                last_seen DATE
+            )
+        """)
+        c.execute(f"""
+            CREATE TABLE IF NOT EXISTS developers{suffix} (
+                username TEXT PRIMARY KEY,
+                trending_count INTEGER DEFAULT 0,
+                last_seen DATE
+            )
+        """)
+
     conn.commit()
     conn.close()
 
 
-def is_repo_new(name: str) -> bool:
-    """Check if repo is new (not in database)."""
+def is_repo_new(name: str, time_range: str = "daily") -> bool:
+    """Check if repo is new (not in database) for the given time range."""
+    suffix = TIME_RANGE_SUFFIXES.get(time_range, "_daily")
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT 1 FROM repos WHERE name = ?", (name,))
+    c.execute(f"SELECT 1 FROM repos{suffix} WHERE name = ?", (name,))
     row = c.fetchone()
     conn.close()
     return row is None
 
 
-def update_repo(name: str, description: str) -> tuple[int, bool]:
-    """Update repo in database, increment trending count.
+def update_repo(name: str, description: str, time_range: str = "daily") -> tuple[int, bool]:
+    """Update repo in database for the given time range, increment trending count.
+
+    Args:
+        name: Repository name (owner/repo)
+        description: Repository description
+        time_range: Time range for deduplication ("daily", "weekly", "monthly")
 
     Returns:
         tuple: (count, is_new) - trending count and whether this is a new repo
     """
+    suffix = TIME_RANGE_SUFFIXES.get(time_range, "_daily")
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
 
-    c.execute("SELECT trending_count FROM repos WHERE name = ?", (name,))
+    c.execute(f"SELECT trending_count FROM repos{suffix} WHERE name = ?", (name,))
     row = c.fetchone()
 
     if row:
         c.execute(
-            "UPDATE repos SET trending_count = trending_count + 1, description = ?, last_seen = ? WHERE name = ?",
+            f"UPDATE repos{suffix} SET trending_count = trending_count + 1, description = ?, last_seen = ? WHERE name = ?",
             (description, today, name)
         )
         count = row[0] + 1
         is_new = False
     else:
         c.execute(
-            "INSERT INTO repos (name, description, trending_count, last_seen) VALUES (?, ?, 1, ?)",
+            f"INSERT INTO repos{suffix} (name, description, trending_count, last_seen) VALUES (?, ?, 1, ?)",
             (name, description, today)
         )
         count = 1
@@ -106,29 +125,34 @@ def update_repo(name: str, description: str) -> tuple[int, bool]:
     return count, is_new
 
 
-def update_developer(username: str) -> tuple[int, bool]:
-    """Update developer in database, increment trending count.
+def update_developer(username: str, time_range: str = "daily") -> tuple[int, bool]:
+    """Update developer in database for the given time range, increment trending count.
+
+    Args:
+        username: Developer username
+        time_range: Time range for deduplication ("daily", "weekly", "monthly")
 
     Returns:
         tuple: (count, is_new) - trending count and whether this is a new developer
     """
+    suffix = TIME_RANGE_SUFFIXES.get(time_range, "_daily")
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
 
-    c.execute("SELECT trending_count FROM developers WHERE username = ?", (username,))
+    c.execute(f"SELECT trending_count FROM developers{suffix} WHERE username = ?", (username,))
     row = c.fetchone()
 
     if row:
         c.execute(
-            "UPDATE developers SET trending_count = trending_count + 1, last_seen = ? WHERE username = ?",
+            f"UPDATE developers{suffix} SET trending_count = trending_count + 1, last_seen = ? WHERE username = ?",
             (today, username)
         )
         count = row[0] + 1
         is_new = False
     else:
         c.execute(
-            "INSERT INTO developers (username, trending_count, last_seen) VALUES (?, 1, ?)",
+            f"INSERT INTO developers{suffix} (username, trending_count, last_seen) VALUES (?, 1, ?)",
             (username, today)
         )
         count = 1
@@ -275,7 +299,7 @@ def format_repos_embed(repos: list, time_range: str = "daily") -> dict | None:
 
     for repo in repos:
         total_count += 1
-        count, is_new = update_repo(repo["name"], repo["description"])
+        count, is_new = update_repo(repo["name"], repo["description"], time_range)
 
         # Only include new repos in the output
         if not is_new:
@@ -337,7 +361,7 @@ def format_devs_embed(developers: list, time_range: str = "daily") -> dict | Non
 
     for dev in developers:
         total_count += 1
-        count, is_new = update_developer(dev["username"])
+        count, is_new = update_developer(dev["username"], time_range)
 
         # Only include new developers in the output
         if not is_new:
@@ -387,9 +411,10 @@ def job():
         repos = fetch_trending_repos(time_range)
         print(f"  Found {len(repos)} trending repos")
 
-        print(f"Fetching trending developers ({time_label})...")
-        devs = fetch_trending_developers(time_range)
-        print(f"  Found {len(devs)} trending developers")
+        # Dev trending 暂时禁用
+        # print(f"Fetching trending developers ({time_label})...")
+        # devs = fetch_trending_developers(time_range)
+        # print(f"  Found {len(devs)} trending developers")
 
         print("Sending to Discord...")
 
@@ -401,13 +426,14 @@ def job():
             else:
                 print("  No new repos to report")
 
-        if devs:
-            devs_embed = format_devs_embed(devs, time_range)
-            if devs_embed:
-                send_discord_message(embeds=[devs_embed])
-                print("  Developers embed sent!")
-            else:
-                print("  No new developers to report")
+        # Dev trending 暂时禁用
+        # if devs:
+        #     devs_embed = format_devs_embed(devs, time_range)
+        #     if devs_embed:
+        #         send_discord_message(embeds=[devs_embed])
+        #         print("  Developers embed sent!")
+        #     else:
+        #         print("  No new developers to report")
 
         # Small delay between time ranges to avoid rate limiting
         if time_range != TIME_RANGES[-1]:
