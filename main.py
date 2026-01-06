@@ -63,8 +63,22 @@ def init_db():
     conn.close()
 
 
-def update_repo(name: str, description: str):
-    """Update repo in database, increment trending count."""
+def is_repo_new(name: str) -> bool:
+    """Check if repo is new (not in database)."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM repos WHERE name = ?", (name,))
+    row = c.fetchone()
+    conn.close()
+    return row is None
+
+
+def update_repo(name: str, description: str) -> tuple[int, bool]:
+    """Update repo in database, increment trending count.
+
+    Returns:
+        tuple: (count, is_new) - trending count and whether this is a new repo
+    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -78,20 +92,26 @@ def update_repo(name: str, description: str):
             (description, today, name)
         )
         count = row[0] + 1
+        is_new = False
     else:
         c.execute(
             "INSERT INTO repos (name, description, trending_count, last_seen) VALUES (?, ?, 1, ?)",
             (name, description, today)
         )
         count = 1
+        is_new = True
 
     conn.commit()
     conn.close()
-    return count
+    return count, is_new
 
 
-def update_developer(username: str):
-    """Update developer in database, increment trending count."""
+def update_developer(username: str) -> tuple[int, bool]:
+    """Update developer in database, increment trending count.
+
+    Returns:
+        tuple: (count, is_new) - trending count and whether this is a new developer
+    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -105,16 +125,18 @@ def update_developer(username: str):
             (today, username)
         )
         count = row[0] + 1
+        is_new = False
     else:
         c.execute(
             "INSERT INTO developers (username, trending_count, last_seen) VALUES (?, 1, ?)",
             (username, today)
         )
         count = 1
+        is_new = True
 
     conn.commit()
     conn.close()
-    return count
+    return count, is_new
 
 
 # ============== GitHub Scraper ==============
@@ -231,8 +253,12 @@ def send_discord_message(content: str = None, embeds: list = None):
     resp.raise_for_status()
 
 
-def format_repos_embed(repos: list, time_range: str = "daily") -> dict:
-    """Format repos as Discord embed."""
+def format_repos_embed(repos: list, time_range: str = "daily") -> dict | None:
+    """Format repos as Discord embed, only including NEW repos.
+
+    Returns:
+        dict | None: Discord embed dict, or None if no new repos found
+    """
     today = datetime.now().strftime("%Y-%m-%d")
 
     # Map time_range to display text
@@ -244,10 +270,22 @@ def format_repos_embed(repos: list, time_range: str = "daily") -> dict:
     time_label = time_range_labels.get(time_range, "Today")
 
     lines = []
-    for repo in repos[:25]:  # Discord embed limit
-        count = update_repo(repo["name"], repo["description"])
+    total_count = 0
+    new_count = 0
+
+    for repo in repos:
+        total_count += 1
+        count, is_new = update_repo(repo["name"], repo["description"])
+
+        # Only include new repos in the output
+        if not is_new:
+            continue
+
+        new_count += 1
+        if len(lines) >= 25:  # Discord embed limit
+            continue
+
         desc = repo["description"][:100] + "..." if len(repo["description"]) > 100 else repo["description"]
-        badge = f" `x{count}`" if count > 1 else " `NEW`"
 
         # Build stats line: language | stars | forks | stars today
         stats = []
@@ -261,20 +299,28 @@ def format_repos_embed(repos: list, time_range: str = "daily") -> dict:
             stats.append(f"📈 {repo['stars_today']}")
         stats_line = " | ".join(stats)
 
-        line = f"**[{repo['name']}]({repo['url']})**{badge}\n{desc}"
+        line = f"**[{repo['name']}]({repo['url']})**\n{desc}"
         if stats_line:
             line += f"\n`{stats_line}`"
         lines.append(line)
 
+    # Return None if no new repos found
+    if new_count == 0:
+        return None
+
     return {
-        "title": f"🔥 Trending Repositories ({time_label}) - {today}",
-        "description": "\n\n".join(lines) if lines else "No trending repos found",
+        "title": f"🔥 New Trending Repositories ({time_label}) - {today}",
+        "description": f"*{new_count} new out of {total_count} total*\n\n" + "\n\n".join(lines),
         "color": 0x238636,  # GitHub green
     }
 
 
-def format_devs_embed(developers: list, time_range: str = "daily") -> dict:
-    """Format developers as Discord embed."""
+def format_devs_embed(developers: list, time_range: str = "daily") -> dict | None:
+    """Format developers as Discord embed, only including NEW developers.
+
+    Returns:
+        dict | None: Discord embed dict, or None if no new developers found
+    """
     today = datetime.now().strftime("%Y-%m-%d")
 
     # Map time_range to display text
@@ -286,11 +332,22 @@ def format_devs_embed(developers: list, time_range: str = "daily") -> dict:
     time_label = time_range_labels.get(time_range, "Today")
 
     lines = []
-    for dev in developers[:25]:  # Discord embed limit
-        count = update_developer(dev["username"])
-        badge = f" `x{count}`" if count > 1 else " `NEW`"
+    total_count = 0
+    new_count = 0
 
-        line = f"**[{dev['display_name']}]({dev['url']})**{badge}"
+    for dev in developers:
+        total_count += 1
+        count, is_new = update_developer(dev["username"])
+
+        # Only include new developers in the output
+        if not is_new:
+            continue
+
+        new_count += 1
+        if len(lines) >= 25:  # Discord embed limit
+            continue
+
+        line = f"**[{dev['display_name']}]({dev['url']})**"
         if dev["popular_repo"]:
             repo_name = dev["popular_repo"].split("/")[-1] if "/" in dev["popular_repo"] else dev["popular_repo"]
             repo_url = f"{GITHUB_BASE}/{dev['popular_repo']}"
@@ -300,9 +357,13 @@ def format_devs_embed(developers: list, time_range: str = "daily") -> dict:
                 line += f" - {repo_desc}"
         lines.append(line)
 
+    # Return None if no new developers found
+    if new_count == 0:
+        return None
+
     return {
-        "title": f"👨‍💻 Trending Developers ({time_label}) - {today}",
-        "description": "\n\n".join(lines) if lines else "No trending developers found",
+        "title": f"👨‍💻 New Trending Developers ({time_label}) - {today}",
+        "description": f"*{new_count} new out of {total_count} total*\n\n" + "\n\n".join(lines),
         "color": 0x6e40c9,  # Purple
     }
 
@@ -334,13 +395,19 @@ def job():
 
         if repos:
             repos_embed = format_repos_embed(repos, time_range)
-            send_discord_message(embeds=[repos_embed])
-            print("  Repos embed sent!")
+            if repos_embed:
+                send_discord_message(embeds=[repos_embed])
+                print("  Repos embed sent!")
+            else:
+                print("  No new repos to report")
 
         if devs:
             devs_embed = format_devs_embed(devs, time_range)
-            send_discord_message(embeds=[devs_embed])
-            print("  Developers embed sent!")
+            if devs_embed:
+                send_discord_message(embeds=[devs_embed])
+                print("  Developers embed sent!")
+            else:
+                print("  No new developers to report")
 
         # Small delay between time ranges to avoid rate limiting
         if time_range != TIME_RANGES[-1]:
