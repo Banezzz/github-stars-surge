@@ -66,10 +66,34 @@ nohup .venv/bin/python main.py --daemon > trending.log 2>&1 &
 
 ## 配置
 
-修改 `main.py` 中的配置变量：
+### 环境变量
 
-- `DISCORD_WEBHOOK`: Discord webhook 地址
-- `SCHEDULE_TIME`: 每日执行时间（默认 09:00）
+复制 `.env.example` 为 `.env` 并填写配置：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件：
+
+```bash
+# 必填：Discord Webhook URL
+DISCORD_WEBHOOK=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+
+# 可选配置
+# DB_PATH=./trending_history.db
+# SCHEDULE_TIME=09:00
+```
+
+### 配置项说明
+
+| 变量 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `DISCORD_WEBHOOK` | ✅ | - | Discord webhook URL |
+| `DB_PATH` | ❌ | `./trending_history.db` | 数据库文件路径 |
+| `SCHEDULE_TIME` | ❌ | `09:00` | 每日执行时间（24小时制） |
+
+> **获取 Discord Webhook**: Discord Server Settings → Integrations → Webhooks → New Webhook
 
 ## 项目结构
 
@@ -77,6 +101,8 @@ nohup .venv/bin/python main.py --daemon > trending.log 2>&1 &
 github-stars-surge/
 ├── main.py              # 主程序
 ├── requirements.txt     # Python 依赖
+├── .env.example         # 环境变量模板
+├── .env                 # 环境变量配置（需自行创建，已被 gitignore）
 ├── README.md            # 说明文档
 ├── claude.md            # 开发规范
 ├── .gitignore           # Git 忽略规则
