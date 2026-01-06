@@ -231,9 +231,17 @@ def send_discord_message(content: str = None, embeds: list = None):
     resp.raise_for_status()
 
 
-def format_repos_embed(repos: list) -> dict:
+def format_repos_embed(repos: list, time_range: str = "daily") -> dict:
     """Format repos as Discord embed."""
     today = datetime.now().strftime("%Y-%m-%d")
+
+    # Map time_range to display text
+    time_range_labels = {
+        "daily": "Today",
+        "weekly": "This Week",
+        "monthly": "This Month"
+    }
+    time_label = time_range_labels.get(time_range, "Today")
 
     lines = []
     for repo in repos[:25]:  # Discord embed limit
@@ -259,15 +267,23 @@ def format_repos_embed(repos: list) -> dict:
         lines.append(line)
 
     return {
-        "title": f"🔥 Trending Repositories - {today}",
+        "title": f"🔥 Trending Repositories ({time_label}) - {today}",
         "description": "\n\n".join(lines) if lines else "No trending repos found",
         "color": 0x238636,  # GitHub green
     }
 
 
-def format_devs_embed(developers: list) -> dict:
+def format_devs_embed(developers: list, time_range: str = "daily") -> dict:
     """Format developers as Discord embed."""
     today = datetime.now().strftime("%Y-%m-%d")
+
+    # Map time_range to display text
+    time_range_labels = {
+        "daily": "Today",
+        "weekly": "This Week",
+        "monthly": "This Month"
+    }
+    time_label = time_range_labels.get(time_range, "Today")
 
     lines = []
     for dev in developers[:25]:  # Discord embed limit
@@ -285,40 +301,52 @@ def format_devs_embed(developers: list) -> dict:
         lines.append(line)
 
     return {
-        "title": f"👨‍💻 Trending Developers - {today}",
+        "title": f"👨‍💻 Trending Developers ({time_label}) - {today}",
         "description": "\n\n".join(lines) if lines else "No trending developers found",
         "color": 0x6e40c9,  # Purple
     }
 
 
 # ============== Main ==============
+# Time ranges to fetch
+TIME_RANGES = ["daily", "weekly", "monthly"]
+
+
 def job():
     """Execute trending fetch and send job."""
     validate_config()
     print(f"\n[{datetime.now()}] Starting job...")
     init_db()
 
-    print("Fetching trending repositories...")
-    repos = fetch_trending_repos()
-    print(f"  Found {len(repos)} trending repos")
+    for time_range in TIME_RANGES:
+        time_label = {"daily": "today", "weekly": "this week", "monthly": "this month"}[time_range]
+        print(f"\n--- Fetching {time_range} trending ---")
 
-    print("Fetching trending developers...")
-    devs = fetch_trending_developers()
-    print(f"  Found {len(devs)} trending developers")
+        print(f"Fetching trending repositories ({time_label})...")
+        repos = fetch_trending_repos(time_range)
+        print(f"  Found {len(repos)} trending repos")
 
-    print("Sending to Discord...")
+        print(f"Fetching trending developers ({time_label})...")
+        devs = fetch_trending_developers(time_range)
+        print(f"  Found {len(devs)} trending developers")
 
-    if repos:
-        repos_embed = format_repos_embed(repos)
-        send_discord_message(embeds=[repos_embed])
-        print("  Repos embed sent!")
+        print("Sending to Discord...")
 
-    if devs:
-        devs_embed = format_devs_embed(devs)
-        send_discord_message(embeds=[devs_embed])
-        print("  Developers embed sent!")
+        if repos:
+            repos_embed = format_repos_embed(repos, time_range)
+            send_discord_message(embeds=[repos_embed])
+            print("  Repos embed sent!")
 
-    print("Job completed!")
+        if devs:
+            devs_embed = format_devs_embed(devs, time_range)
+            send_discord_message(embeds=[devs_embed])
+            print("  Developers embed sent!")
+
+        # Small delay between time ranges to avoid rate limiting
+        if time_range != TIME_RANGES[-1]:
+            time.sleep(1)
+
+    print("\nJob completed!")
 
 
 def run_scheduler(run_time: str = SCHEDULE_TIME, run_immediately: bool = False):
