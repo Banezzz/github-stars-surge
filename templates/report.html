@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GitHub Stars Surge</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --green: #3fb950;
+      --green-dim: #238636;
+      --link: #58a6ff;
+      --chip: #21262d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 20px 16px;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px 48px; }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    .subtitle { color: var(--muted); margin: 0; font-size: 14px; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin: 20px 0 8px;
+    }
+    .tabs { display: flex; gap: 8px; }
+    .tab, .nav, select, input[type="search"] {
+      background: var(--chip);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+    input[type="search"] { min-width: 200px; flex: 1; }
+    .tab.active { background: var(--green-dim); border-color: var(--green-dim); }
+    .nav[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
+    select { min-width: 220px; }
+    .meta { color: var(--muted); font-size: 13px; margin: 8px 0 20px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin: 0 0 12px;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .rank { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 28px; }
+    .name { font-weight: 650; font-size: 16px; }
+    .desc { color: var(--muted); margin: 6px 0 0; font-size: 14px; }
+    .stats { color: var(--muted); font-size: 13px; margin-top: 8px; }
+    .stars { color: var(--green); font-weight: 650; white-space: nowrap; }
+    .badge {
+      display: inline-block;
+      margin-left: 8px;
+      background: #1f6feb33;
+      color: #79c0ff;
+      border-radius: 999px;
+      padding: 1px 8px;
+      font-size: 12px;
+      vertical-align: middle;
+    }
+    .empty {
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 32px 20px;
+      color: var(--muted);
+      text-align: center;
+    }
+    code { background: var(--chip); padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap" style="padding-bottom: 0;">
+      <h1>GitHub Stars Surge</h1>
+      <p class="subtitle">Historical trending reports by week and month</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <form class="controls" method="get" action="/">
+      <div class="tabs">
+        {% for range_name in ranges %}
+          <a class="tab {% if range_name == time_range %}active{% endif %}"
+             href="/?range={{ range_name }}">{{ range_labels[range_name] }}</a>
+        {% endfor %}
+      </div>
+
+      {% if periods %}
+      <a class="nav" {% if prev_period %}href="/?range={{ time_range }}&period={{ prev_period }}"{% else %}aria-disabled="true"{% endif %}>← Older</a>
+      <select name="period" onchange="this.form.submit()">
+        {% for item in periods %}
+          <option value="{{ item.period_key }}" {% if item.period_key == selected %}selected{% endif %}>
+            {{ item.label }}
+          </option>
+        {% endfor %}
+      </select>
+      <a class="nav" {% if next_period %}href="/?range={{ time_range }}&period={{ next_period }}"{% else %}aria-disabled="true"{% endif %}>Newer →</a>
+      <input type="search" id="q" placeholder="Filter name or language" oninput="filterCards()">
+      {% endif %}
+      <input type="hidden" name="range" value="{{ time_range }}">
+    </form>
+
+    {% if report %}
+      <p class="meta">
+        {{ report.label }} · {{ report.repos|length }} repos · {{ report.new_count }} new
+        · fetched {{ report.fetched_at }}
+      </p>
+
+      {% for repo in report.repos %}
+        <article class="card" data-search="{{ repo.name }} {{ repo.language }} {{ repo.description }}">
+          <div class="row">
+            <div>
+              <span class="rank">#{{ repo.rank }}</span>
+              <a class="name" href="{{ repo.url }}" target="_blank" rel="noreferrer">{{ repo.name }}</a>
+              {% if repo.is_new %}<span class="badge">NEW</span>{% endif %}
+              {% if repo.description %}<p class="desc">{{ repo.description }}</p>{% endif %}
+              <div class="stats">
+                {% if repo.language %}{{ repo.language }} · {% endif %}
+                {% if repo.total_stars is not none %}⭐ {{ "{:,}".format(repo.total_stars) }}{% endif %}
+                {% if repo.forks is not none %} · 🍴 {{ "{:,}".format(repo.forks) }}{% endif %}
+              </div>
+            </div>
+            <div class="stars">
+              {% if repo.stars_period is not none %}
+                +{{ "{:,}".format(repo.stars_period) }}
+                <div class="subtitle">{{ stars_label }}</div>
+              {% elif repo.stars_period_label %}
+                {{ repo.stars_period_label }}
+              {% endif %}
+            </div>
+          </div>
+        </article>
+      {% endfor %}
+    {% else %}
+      <div class="empty">
+        <p>No {{ range_labels[time_range]|lower }} snapshots yet.</p>
+        <p>Collect a report first: <code>.venv/bin/python main.py --now</code></p>
+      </div>
+    {% endif %}
+  </main>
+  <script>
+    function filterCards() {
+      const q = (document.getElementById("q")?.value || "").toLowerCase();
+      document.querySelectorAll(".card").forEach((card) => {
+        const haystack = (card.getAttribute("data-search") || "").toLowerCase();
+        card.style.display = haystack.includes(q) ? "" : "none";
+      });
+    }
+  </script>
+</body>
+</html>

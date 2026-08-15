@@ -1,272 +1,51 @@
 #!/usr/bin/env python3
 """
 GitHub Trending Tracker
-Fetches trending repos and developers, sends to Discord, tracks history locally.
+Fetches trending repos, stores historical snapshots, and can notify Discord.
 """
 
 import argparse
 import os
-import sqlite3
 import sys
+import threading
 import time
-import requests
-import schedule
-from bs4 import BeautifulSoup
 from datetime import datetime
 from pathlib import Path
+
+import requests
+import schedule
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+import db
+from period import TIME_RANGE_LABELS, TIME_RANGES
+from scraper import fetch_trending_repos
+from web import run_web
+
 load_dotenv()
 
-# Configuration (from environment variables)
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 DB_PATH = Path(os.getenv("DB_PATH", Path(__file__).parent / "trending_history.db"))
 GITHUB_BASE = os.getenv("GITHUB_BASE", "https://github.com")
 SCHEDULE_TIME = os.getenv("SCHEDULE_TIME", "09:00")
+WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
+WEB_PORT = int(os.getenv("WEB_PORT", "8765"))
+DISCORD_DESCRIPTION_LIMIT = 4000
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
+db.configure(DB_PATH)
 
 
-def validate_config():
-    """Validate required configuration."""
+def validate_discord():
+    """Warn when Discord delivery is unavailable."""
     if not DISCORD_WEBHOOK:
-        print("Error: DISCORD_WEBHOOK environment variable is required.")
-        print("Please set it in .env file or as environment variable.")
-        print("Example: DISCORD_WEBHOOK=https://discord.com/api/webhooks/...")
-        sys.exit(1)
+        print("Warning: DISCORD_WEBHOOK is not set. Snapshots will still be saved.")
+        print("Discord messages will be skipped.")
 
 
-# ============== Database ==============
-# 去重机制：日度、周度、月度分别使用独立的表进行去重
-TIME_RANGE_SUFFIXES = {
-    "daily": "_daily",
-    "weekly": "_weekly",
-    "monthly": "_monthly"
-}
-
-
-def init_db():
-    """Initialize SQLite database with separate tables for each time range."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
-    # 为每个时间范围创建独立的表
-    for time_range, suffix in TIME_RANGE_SUFFIXES.items():
-        c.execute(f"""
-            CREATE TABLE IF NOT EXISTS repos{suffix} (
-                name TEXT PRIMARY KEY,
-                description TEXT,
-                trending_count INTEGER DEFAULT 0,
-                last_seen DATE
-            )
-        """)
-        c.execute(f"""
-            CREATE TABLE IF NOT EXISTS developers{suffix} (
-                username TEXT PRIMARY KEY,
-                trending_count INTEGER DEFAULT 0,
-                last_seen DATE
-            )
-        """)
-
-    conn.commit()
-    conn.close()
-
-
-def is_repo_new(name: str, time_range: str = "daily") -> bool:
-    """Check if repo is new (not in database) for the given time range."""
-    suffix = TIME_RANGE_SUFFIXES.get(time_range, "_daily")
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(f"SELECT 1 FROM repos{suffix} WHERE name = ?", (name,))
-    row = c.fetchone()
-    conn.close()
-    return row is None
-
-
-def update_repo(name: str, description: str, time_range: str = "daily") -> tuple[int, bool]:
-    """Update repo in database for the given time range, increment trending count.
-
-    Args:
-        name: Repository name (owner/repo)
-        description: Repository description
-        time_range: Time range for deduplication ("daily", "weekly", "monthly")
-
-    Returns:
-        tuple: (count, is_new) - trending count and whether this is a new repo
-    """
-    suffix = TIME_RANGE_SUFFIXES.get(time_range, "_daily")
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    c.execute(f"SELECT trending_count FROM repos{suffix} WHERE name = ?", (name,))
-    row = c.fetchone()
-
-    if row:
-        c.execute(
-            f"UPDATE repos{suffix} SET trending_count = trending_count + 1, description = ?, last_seen = ? WHERE name = ?",
-            (description, today, name)
-        )
-        count = row[0] + 1
-        is_new = False
-    else:
-        c.execute(
-            f"INSERT INTO repos{suffix} (name, description, trending_count, last_seen) VALUES (?, ?, 1, ?)",
-            (name, description, today)
-        )
-        count = 1
-        is_new = True
-
-    conn.commit()
-    conn.close()
-    return count, is_new
-
-
-def update_developer(username: str, time_range: str = "daily") -> tuple[int, bool]:
-    """Update developer in database for the given time range, increment trending count.
-
-    Args:
-        username: Developer username
-        time_range: Time range for deduplication ("daily", "weekly", "monthly")
-
-    Returns:
-        tuple: (count, is_new) - trending count and whether this is a new developer
-    """
-    suffix = TIME_RANGE_SUFFIXES.get(time_range, "_daily")
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    c.execute(f"SELECT trending_count FROM developers{suffix} WHERE username = ?", (username,))
-    row = c.fetchone()
-
-    if row:
-        c.execute(
-            f"UPDATE developers{suffix} SET trending_count = trending_count + 1, last_seen = ? WHERE username = ?",
-            (today, username)
-        )
-        count = row[0] + 1
-        is_new = False
-    else:
-        c.execute(
-            f"INSERT INTO developers{suffix} (username, trending_count, last_seen) VALUES (?, 1, ?)",
-            (username, today)
-        )
-        count = 1
-        is_new = True
-
-    conn.commit()
-    conn.close()
-    return count, is_new
-
-
-# ============== GitHub Scraper ==============
-def fetch_trending_repos(time_range: str = "daily") -> list:
-    """Fetch trending repositories from GitHub."""
-    url = f"{GITHUB_BASE}/trending?since={time_range}"
-    resp = requests.get(url, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    repos = []
-
-    for article in soup.select("article.Box-row"):
-        # Get repo name (owner/repo)
-        h2 = article.select_one("h2 a")
-        if not h2:
-            continue
-
-        name = h2.get("href", "").strip("/")
-        if not name:
-            continue
-
-        # Get description
-        desc_elem = article.select_one("p")
-        description = desc_elem.get_text(strip=True) if desc_elem else ""
-
-        # Get language
-        lang_elem = article.select_one("[itemprop='programmingLanguage']")
-        language = lang_elem.get_text(strip=True) if lang_elem else ""
-
-        # Get total stars and forks from the link elements
-        links = article.select("a.Link--muted.d-inline-block.mr-3")
-        total_stars = ""
-        forks = ""
-        for link in links:
-            href = link.get("href", "")
-            text = link.get_text(strip=True).replace(",", "")
-            if "/stargazers" in href:
-                total_stars = text
-            elif "/forks" in href:
-                forks = text
-
-        # Get stars today
-        stars_today_elem = article.select_one("span.d-inline-block.float-sm-right")
-        stars_today = stars_today_elem.get_text(strip=True) if stars_today_elem else ""
-
-        repos.append({
-            "name": name,
-            "description": description,
-            "language": language,
-            "total_stars": total_stars,
-            "forks": forks,
-            "stars_today": stars_today,
-            "url": f"{GITHUB_BASE}/{name}"
-        })
-
-    return repos
-
-
-def fetch_trending_developers(time_range: str = "daily") -> list:
-    """Fetch trending developers from GitHub."""
-    url = f"{GITHUB_BASE}/trending/developers?since={time_range}"
-    resp = requests.get(url, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    developers = []
-
-    for article in soup.select("article.Box-row"):
-        # Get display name from h1.h3
-        name_elem = article.select_one("h1.h3 a")
-        if not name_elem:
-            continue
-        display_name = name_elem.get_text(strip=True)
-        profile_href = name_elem.get("href", "").strip("/")
-
-        # Get username from p.f4
-        username_elem = article.select_one("p.f4 a")
-        username = username_elem.get_text(strip=True) if username_elem else profile_href
-
-        # Get popular repo from inner article
-        inner_article = article.select_one("article")
-        popular_repo = ""
-        repo_desc = ""
-        if inner_article:
-            repo_link = inner_article.select_one("h1.h4 a")
-            if repo_link:
-                popular_repo = repo_link.get("href", "").strip("/")
-            desc_elem = inner_article.select_one("div.f6.color-fg-muted.mt-1")
-            if desc_elem:
-                repo_desc = desc_elem.get_text(strip=True)
-
-        developers.append({
-            "username": username,
-            "display_name": display_name,
-            "popular_repo": popular_repo,
-            "repo_description": repo_desc,
-            "url": f"{GITHUB_BASE}/{profile_href}"
-        })
-
-    return developers
-
-
-# ============== Discord ==============
 def send_discord_message(content: str = None, embeds: list = None):
     """Send message to Discord webhook."""
+    if not DISCORD_WEBHOOK:
+        return
+
     payload = {}
     if content:
         payload["content"] = content
@@ -277,50 +56,28 @@ def send_discord_message(content: str = None, embeds: list = None):
     resp.raise_for_status()
 
 
-def format_repos_embed(repos: list, time_range: str = "daily") -> dict | None:
-    """Format repos as Discord embed, only including NEW repos.
+def format_repos_embed(snapshot: dict) -> dict | None:
+    """Format NEW repos from a stored snapshot as a Discord embed."""
+    new_repos = [repo for repo in snapshot["repos"] if repo["is_new"]]
+    if not new_repos:
+        return None
 
-    Returns:
-        dict | None: Discord embed dict, or None if no new repos found
-    """
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    # Map time_range to display text
-    time_range_labels = {
-        "daily": "Today",
-        "weekly": "This Week",
-        "monthly": "This Month"
-    }
-    time_label = time_range_labels.get(time_range, "Today")
-
+    time_label = TIME_RANGE_LABELS.get(snapshot["time_range"], snapshot["time_range"])
     lines = []
-    total_count = 0
-    new_count = 0
+    for repo in new_repos[:25]:
+        desc = repo["description"]
+        if len(desc) > 100:
+            desc = desc[:100] + "..."
 
-    for repo in repos:
-        total_count += 1
-        count, is_new = update_repo(repo["name"], repo["description"], time_range)
-
-        # Only include new repos in the output
-        if not is_new:
-            continue
-
-        new_count += 1
-        if len(lines) >= 25:  # Discord embed limit
-            continue
-
-        desc = repo["description"][:100] + "..." if len(repo["description"]) > 100 else repo["description"]
-
-        # Build stats line: language | stars | forks | stars today
         stats = []
         if repo.get("language"):
             stats.append(repo["language"])
-        if repo.get("total_stars"):
-            stats.append(f"⭐ {repo['total_stars']}")
-        if repo.get("forks"):
-            stats.append(f"🍴 {repo['forks']}")
-        if repo.get("stars_today"):
-            stats.append(f"📈 {repo['stars_today']}")
+        if repo.get("total_stars") is not None:
+            stats.append(f"⭐ {repo['total_stars']:,}")
+        if repo.get("forks") is not None:
+            stats.append(f"🍴 {repo['forks']:,}")
+        if repo.get("stars_period_label"):
+            stats.append(f"📈 {repo['stars_period_label']}")
         stats_line = " | ".join(stats)
 
         line = f"**[{repo['name']}]({repo['url']})**\n{desc}"
@@ -328,132 +85,85 @@ def format_repos_embed(repos: list, time_range: str = "daily") -> dict | None:
             line += f"\n`{stats_line}`"
         lines.append(line)
 
-    # Return None if no new repos found
-    if new_count == 0:
-        return None
+    description = (
+        f"*{len(new_repos)} new out of {len(snapshot['repos'])} total*\n\n"
+        + "\n\n".join(lines)
+    )
+    if len(description) > DISCORD_DESCRIPTION_LIMIT:
+        description = description[: DISCORD_DESCRIPTION_LIMIT - 1] + "…"
 
     return {
-        "title": f"🔥 New Trending Repositories ({time_label}) - {today}",
-        "description": f"*{new_count} new out of {total_count} total*\n\n" + "\n\n".join(lines),
-        "color": 0x238636,  # GitHub green
+        "title": f"🔥 New Trending Repositories ({time_label}) - {snapshot['period_key']}",
+        "description": description,
+        "color": 0x238636,
     }
 
 
-def format_devs_embed(developers: list, time_range: str = "daily") -> dict | None:
-    """Format developers as Discord embed, only including NEW developers.
+def process_time_range(time_range: str) -> dict | None:
+    """Fetch, store, and optionally notify one time range. Skip empty scrapes."""
+    time_label = TIME_RANGE_LABELS[time_range].lower()
+    print(f"\n--- Fetching {time_range} trending ---")
+    print(f"Fetching trending repositories ({time_label})...")
 
-    Returns:
-        dict | None: Discord embed dict, or None if no new developers found
-    """
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    # Map time_range to display text
-    time_range_labels = {
-        "daily": "Today",
-        "weekly": "This Week",
-        "monthly": "This Month"
-    }
-    time_label = time_range_labels.get(time_range, "Today")
-
-    lines = []
-    total_count = 0
-    new_count = 0
-
-    for dev in developers:
-        total_count += 1
-        count, is_new = update_developer(dev["username"], time_range)
-
-        # Only include new developers in the output
-        if not is_new:
-            continue
-
-        new_count += 1
-        if len(lines) >= 25:  # Discord embed limit
-            continue
-
-        line = f"**[{dev['display_name']}]({dev['url']})**"
-        if dev["popular_repo"]:
-            repo_name = dev["popular_repo"].split("/")[-1] if "/" in dev["popular_repo"] else dev["popular_repo"]
-            repo_url = f"{GITHUB_BASE}/{dev['popular_repo']}"
-            repo_desc = dev["repo_description"][:80] + "..." if len(dev["repo_description"]) > 80 else dev["repo_description"]
-            line += f"\n📦 [{repo_name}]({repo_url})"
-            if repo_desc:
-                line += f" - {repo_desc}"
-        lines.append(line)
-
-    # Return None if no new developers found
-    if new_count == 0:
+    repos = fetch_trending_repos(GITHUB_BASE, time_range)
+    print(f"  Found {len(repos)} trending repos")
+    if not repos:
+        print("  Empty result, not overwriting an existing snapshot")
         return None
 
-    return {
-        "title": f"👨‍💻 New Trending Developers ({time_label}) - {today}",
-        "description": f"*{new_count} new out of {total_count} total*\n\n" + "\n\n".join(lines),
-        "color": 0x6e40c9,  # Purple
-    }
+    snapshot = db.save_snapshot(time_range, repos)
+    print(
+        f"  Saved {snapshot['period_key']}: "
+        f"{snapshot['new_count']} new / {len(snapshot['repos'])} total"
+    )
 
+    repos_embed = format_repos_embed(snapshot)
+    if not repos_embed:
+        print("  No new repos to report")
+        return snapshot
 
-# ============== Main ==============
-# Time ranges to fetch
-TIME_RANGES = ["daily", "weekly", "monthly"]
+    try:
+        send_discord_message(embeds=[repos_embed])
+        print("  Repos embed sent!" if DISCORD_WEBHOOK else "  Discord skipped (no webhook)")
+    except requests.RequestException as exc:
+        print(f"  Discord failed: {exc}")
+    return snapshot
 
 
 def job():
-    """Execute trending fetch and send job."""
-    validate_config()
+    """Fetch trending lists, store snapshots, and optionally notify Discord."""
     print(f"\n[{datetime.now()}] Starting job...")
-    init_db()
+    db.init_db()
+    validate_discord()
 
     for time_range in TIME_RANGES:
-        time_label = {"daily": "today", "weekly": "this week", "monthly": "this month"}[time_range]
-        print(f"\n--- Fetching {time_range} trending ---")
-
-        print(f"Fetching trending repositories ({time_label})...")
-        repos = fetch_trending_repos(time_range)
-        print(f"  Found {len(repos)} trending repos")
-
-        # Dev trending 暂时禁用
-        # print(f"Fetching trending developers ({time_label})...")
-        # devs = fetch_trending_developers(time_range)
-        # print(f"  Found {len(devs)} trending developers")
-
-        print("Sending to Discord...")
-
-        if repos:
-            repos_embed = format_repos_embed(repos, time_range)
-            if repos_embed:
-                send_discord_message(embeds=[repos_embed])
-                print("  Repos embed sent!")
-            else:
-                print("  No new repos to report")
-
-        # Dev trending 暂时禁用
-        # if devs:
-        #     devs_embed = format_devs_embed(devs, time_range)
-        #     if devs_embed:
-        #         send_discord_message(embeds=[devs_embed])
-        #         print("  Developers embed sent!")
-        #     else:
-        #         print("  No new developers to report")
-
-        # Small delay between time ranges to avoid rate limiting
+        try:
+            process_time_range(time_range)
+        except Exception as exc:
+            print(f"  {time_range} failed: {exc}")
         if time_range != TIME_RANGES[-1]:
             time.sleep(1)
 
     print("\nJob completed!")
 
 
+def safe_job():
+    """Keep the daemon alive if a scheduled run fails."""
+    try:
+        job()
+    except Exception as exc:
+        print(f"Job failed: {exc}")
+
+
 def run_scheduler(run_time: str = SCHEDULE_TIME, run_immediately: bool = False):
     """Run scheduler loop."""
-    validate_config()
-
     if run_immediately:
         print("Running job immediately...")
-        job()
+        safe_job()
         print()
 
-    schedule.every().day.at(run_time).do(job)
+    schedule.every().day.at(run_time).do(safe_job)
 
-    # Calculate next run time
     next_run = schedule.next_run()
     print(f"Scheduler started. Will run daily at {run_time}")
     print(f"Next scheduled run: {next_run}")
@@ -464,6 +174,18 @@ def run_scheduler(run_time: str = SCHEDULE_TIME, run_immediately: bool = False):
         time.sleep(60)
 
 
+def start_web(host: str, port: int, background: bool = False) -> None:
+    if background:
+        thread = threading.Thread(
+            target=run_web,
+            kwargs={"host": host, "port": port},
+            daemon=True,
+        )
+        thread.start()
+        return
+    run_web(host=host, port=port)
+
+
 def interactive_menu():
     """Interactive menu for configuration."""
     print("\n=== GitHub Trending Tracker ===\n")
@@ -472,9 +194,10 @@ def interactive_menu():
     print("  1) Run once now")
     print("  2) Start daemon (scheduled daily)")
     print("  3) Start daemon + run once now")
+    print("  4) Open history web viewer")
     print("  q) Quit")
 
-    choice = input("\nChoice [1/2/3/q]: ").strip().lower()
+    choice = input("\nChoice [1/2/3/4/q]: ").strip().lower()
 
     if choice == "q":
         print("Bye!")
@@ -482,20 +205,20 @@ def interactive_menu():
     elif choice == "1":
         job()
     elif choice in ("2", "3"):
-        # Ask for schedule time
         default_time = SCHEDULE_TIME
         time_input = input(f"Schedule time (HH:MM) [{default_time}]: ").strip()
         run_time = time_input if time_input else default_time
 
-        # Validate time format
         try:
             datetime.strptime(run_time, "%H:%M")
         except ValueError:
             print(f"Invalid time format: {run_time}. Use HH:MM (e.g., 09:00)")
             sys.exit(1)
 
-        run_immediately = (choice == "3")
+        run_immediately = choice == "3"
         run_scheduler(run_time, run_immediately)
+    elif choice == "4":
+        start_web(WEB_HOST, WEB_PORT)
     else:
         print("Invalid choice")
         sys.exit(1)
@@ -506,30 +229,54 @@ def main():
     parser.add_argument(
         "--daemon", "-d",
         action="store_true",
-        help="Run as daemon with built-in scheduler"
+        help="Run as daemon with built-in scheduler",
     )
     parser.add_argument(
         "--time", "-t",
         default=SCHEDULE_TIME,
-        help=f"Schedule time in HH:MM format (default: {SCHEDULE_TIME})"
+        help=f"Schedule time in HH:MM format (default: {SCHEDULE_TIME})",
     )
     parser.add_argument(
         "--now", "-n",
         action="store_true",
-        help="Run immediately before starting daemon (use with --daemon)"
+        help="Run a fetch immediately",
+    )
+    parser.add_argument(
+        "--web", "-w",
+        action="store_true",
+        help="Serve the historical report viewer",
+    )
+    parser.add_argument(
+        "--host",
+        default=WEB_HOST,
+        help=f"Web viewer host (default: {WEB_HOST})",
+    )
+    parser.add_argument(
+        "--port", "-p",
+        type=int,
+        default=WEB_PORT,
+        help=f"Web viewer port (default: {WEB_PORT})",
     )
     args = parser.parse_args()
 
-    # If no arguments provided, enter interactive mode
     if len(sys.argv) == 1:
         interactive_menu()
-    elif args.daemon:
-        run_scheduler(args.time, args.now)
-    elif args.now:
-        # --now without --daemon: just run once
+        return
+
+    if args.now and not args.daemon:
         job()
-    else:
-        # Fallback: show help
+
+    if args.daemon:
+        if args.web:
+            start_web(args.host, args.port, background=True)
+        run_scheduler(args.time, args.now)
+        return
+
+    if args.web:
+        start_web(args.host, args.port)
+        return
+
+    if not args.now:
         parser.print_help()
 
 
