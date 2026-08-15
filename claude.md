@@ -1,74 +1,46 @@
-# GitHub Trending Tracker - 开发规范
+# GitHub Stars Surge - Development Notes
 
-## 项目概述
+## Overview
 
-轻量化 GitHub Trending 追踪器，抓取 trending repos/developers 并发送到 Discord。
+Lightweight GitHub Trending tracker. Snapshots daily / weekly / monthly repo lists, optionally notifies Discord, and serves a local history viewer.
 
-## 技术栈
+## Stack
 
 - Python 3.12+
-- requests + BeautifulSoup4（网页抓取）
-- schedule（定时调度）
-- SQLite（本地数据库）
+- requests + BeautifulSoup4 (scrape)
+- schedule (daemon)
+- SQLite (snapshots)
+- Flask (history viewer)
 
-## 环境
+## Interpreter
 
-- Python 解释器: `.venv/bin/python`
-- 依赖安装: `.venv/bin/pip install -r requirements.txt`
+- `.venv/bin/python`
+- `.venv/bin/pip install -r requirements.txt`
 
-## 核心模块
+## Modules
 
-### main.py
+- `period.py`: ISO period keys and labels (`2026-08-15`, `2026-W33`, `2026-08`)
+- `db.py`: snapshot upsert / query
+- `web.py`: Flask app for historical reports
+- `main.py`: scraper, Discord, CLI, scheduler
+- `templates/report.html`: week/month report page
 
-单文件架构，包含以下模块：
+## Data model
 
-1. **Database** (init_db, update_repo, update_developer)
-   - SQLite 存储，文件路径: `trending_history.db`
-   - 记录 trending 历史次数
+One snapshot per `(time_range, period_key)`. Re-fetching the same week or month replaces that snapshot. A repo is `NEW` when it has not appeared in an earlier period of the same time range.
 
-2. **GitHub Scraper** (fetch_trending_repos, fetch_trending_developers)
-   - 抓取 `github.com/trending` 和 `github.com/trending/developers`
-   - 解析 HTML 获取 repo/developer 信息
-
-3. **Discord** (send_discord_message, format_repos_embed, format_devs_embed)
-   - 格式化为 Discord embed 消息
-   - 发送到配置的 webhook
-
-4. **Scheduler** (job, run_scheduler, main)
-   - 支持单次执行和守护进程模式
-   - 使用 schedule 库实现定时
-
-## 关键选择器（GitHub HTML）
-
-### Trending Repos
-- Repo 名称: `article.Box-row h2 a[href]`
-- 描述: `article.Box-row p`
-- 语言: `[itemprop='programmingLanguage']`
-- Stars/Forks: `a.Link--muted.d-inline-block.mr-3`
-- Stars today: `span.d-inline-block.float-sm-right`
-
-### Trending Developers
-- Display name: `h1.h3 a`
-- Username: `p.f4 a`
-- Popular repo: `article h1.h4 a`
-- Repo description: `article div.f6.color-fg-muted.mt-1`
-
-## 运行命令
+## Commands
 
 ```bash
-# 单次执行
-.venv/bin/python main.py
-
-# 守护进程（每天 09:00）
-.venv/bin/python main.py --daemon
-
-# 自定义时间
-.venv/bin/python main.py --daemon --time 18:30
+.venv/bin/python main.py --now
+.venv/bin/python main.py --web
+.venv/bin/python main.py --daemon --web --now
+.venv/bin/python -m unittest discover -s tests -t .
 ```
 
-## 注意事项
+## Notes
 
-1. GitHub 页面结构可能变化，需要更新选择器
-2. Discord embed 限制 25 条记录
-3. 数据库文件不应提交到 git（已在 .gitignore）
-4. Webhook URL 包含敏感信息，生产环境应使用环境变量
+1. GitHub HTML selectors can change
+2. Discord embeds cap at 25 items
+3. Do not commit the SQLite file or `.env`
+4. Discord webhook is optional; the web viewer only needs snapshots
