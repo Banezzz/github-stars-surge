@@ -72,6 +72,20 @@ class SnapshotDbTests(unittest.TestCase):
         keys = [item["period_key"] for item in db.list_periods("monthly")]
         self.assertEqual(keys, ["2026-08", "2026-07"])
 
+    def test_recompute_is_new_marks_first_seen_per_board(self):
+        week1 = datetime(2026, 8, 10, 9, 0)
+        week2 = datetime(2026, 8, 17, 9, 0)
+        db.save_snapshot("weekly", [_repo("owner/repeat")], week1)
+        db.save_snapshot("weekly", [_repo("owner/repeat"), _repo("owner/fresh")], week2)
+
+        with db.get_conn() as conn:
+            conn.execute("UPDATE snapshot_repos SET is_new = 1")
+
+        db.recompute_is_new()
+        later = {repo["name"]: repo["is_new"] for repo in db.get_report("weekly", "2026-W34")["repos"]}
+        self.assertFalse(later["owner/repeat"])
+        self.assertTrue(later["owner/fresh"])
+
     def test_empty_snapshot_is_refused(self):
         when = datetime(2026, 8, 15, 9, 0)
         db.save_snapshot("weekly", [_repo("owner/keep")], when)

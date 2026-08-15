@@ -39,9 +39,11 @@ def init_db() -> None:
                 time_range TEXT NOT NULL,
                 period_key TEXT NOT NULL,
                 fetched_at TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'scrape',
                 UNIQUE(time_range, period_key)
             )
         """)
+        _ensure_schema(conn)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS snapshot_repos (
                 id INTEGER PRIMARY KEY,
@@ -84,6 +86,15 @@ def init_db() -> None:
             conn.execute(f"DROP TABLE IF EXISTS {leftover}")
 
 
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the first schema version."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(snapshots)")}
+    if "source" not in columns:
+        conn.execute(
+            "ALTER TABLE snapshots ADD COLUMN source TEXT NOT NULL DEFAULT 'scrape'"
+        )
+
+
 def _is_new(conn: sqlite3.Connection, time_range: str, name: str, current_key: str) -> bool:
     row = conn.execute(
         """
@@ -124,12 +135,15 @@ def save_snapshot(
             snapshot_id = existing["id"]
             conn.execute("DELETE FROM snapshot_repos WHERE snapshot_id = ?", (snapshot_id,))
             conn.execute(
-                "UPDATE snapshots SET fetched_at = ? WHERE id = ?",
+                "UPDATE snapshots SET fetched_at = ?, source = 'scrape' WHERE id = ?",
                 (fetched_at, snapshot_id),
             )
         else:
             cursor = conn.execute(
-                "INSERT INTO snapshots (time_range, period_key, fetched_at) VALUES (?, ?, ?)",
+                """
+                INSERT INTO snapshots (time_range, period_key, fetched_at, source)
+                VALUES (?, ?, ?, 'scrape')
+                """,
                 (time_range, key, fetched_at),
             )
             snapshot_id = cursor.lastrowid
@@ -191,6 +205,7 @@ def list_periods(time_range: str) -> list[dict]:
             SELECT
                 s.period_key,
                 s.fetched_at,
+                COALESCE(s.source, 'scrape') AS source,
                 COUNT(r.id) AS repo_count,
                 COALESCE(SUM(r.is_new), 0) AS new_count
             FROM snapshots s
@@ -207,6 +222,7 @@ def list_periods(time_range: str) -> list[dict]:
             "period_key": row["period_key"],
             "label": format_period_label(time_range, row["period_key"]),
             "fetched_at": row["fetched_at"],
+            "source": row["source"],
             "repo_count": row["repo_count"],
             "new_count": row["new_count"],
         }
@@ -266,6 +282,57 @@ def get_report(time_range: str, period: str | None = None) -> dict | None:
         "period_key": snapshot["period_key"],
         "label": format_period_label(snapshot["time_range"], snapshot["period_key"]),
         "fetched_at": snapshot["fetched_at"],
+        "source": snapshot["source"] if "source" in snapshot.keys() else "scrape",
         "repos": repos,
         "new_count": sum(1 for repo in repos if repo["is_new"]),
     }
+
+
+def recompute_is_new() -> dict[str, int]:
+    """Mark NEW only on a repo's first appearance in that daily/weekly/monthly board."""
+    updated = 0
+    with get_conn() as conn:
+        ranges = [
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT time_range FROM snapshots ORDER BY time_range"
+            )
+        ]
+        for time_range in ranges:
+            snapshots = conn.execute(
+                """
+                SELECT id, period_key
+                FROM snapshots
+                WHERE time_range = ?
+                ORDER BY period_key
+                """,
+                (time_range,),
+            ).fetchall()
+            seen: set[str] = set()
+            for snapshot in snapshots:
+                rows = conn.execute(
+                    """
+                    SELECT id, name
+                    FROM snapshot_repos
+                    WHERE snapshot_id = ?
+                    ORDER BY rank
+                    """,
+                    (snapshot["id"],),
+                ).fetchall()
+                for row in rows:
+                    is_new = 0 if row["name"] in seen else 1
+                    conn.execute(
+                        "UPDATE snapshot_repos SET is_new = ? WHERE id = ?",
+                        (is_new, row["id"]),
+                    )
+                    seen.add(row["name"])
+                    updated += 1
+    return {"repos": updated}
+
+
+def set_snapshot_source(time_range: str, period_key: str, source: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE snapshots SET source = ? WHERE time_range = ? AND period_key = ?",
+            (source, time_range, period_key),
+        )

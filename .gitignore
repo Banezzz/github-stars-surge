@@ -1,5 +1,6 @@
 # Database
 *.db
+*.db.bak
 *.sqlite
 *.sqlite3
 
@@ -15,3 +16,5 @@ venv/
 .idea/
 .vscode/
 *.swp
+
+import/

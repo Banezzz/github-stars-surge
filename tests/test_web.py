@@ -66,6 +66,26 @@ class WebViewerTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("No daily snapshots yet", response.get_data(as_text=True))
 
+    def test_discord_archive_is_labeled(self):
+        db.save_snapshot(
+            "daily",
+            [{
+                "name": "owner/old",
+                "description": "from discord",
+                "language": "Rust",
+                "total_stars": "10",
+                "forks": "1",
+                "stars_today": "2 stars today",
+                "url": "https://github.com/owner/old",
+            }],
+            datetime(2026, 3, 15, 9, 0),
+        )
+        db.set_snapshot_source("daily", "2026-03-15", "discord")
+        response = self.client.get("/?range=daily&period=2026-03-15")
+        body = response.get_data(as_text=True)
+        self.assertIn("partial archive", body)
+        self.assertIn("NEW", body)
+
 
 if __name__ == "__main__":
     unittest.main()

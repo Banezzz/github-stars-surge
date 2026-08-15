@@ -96,7 +96,7 @@
   <header>
     <div class="wrap" style="padding-bottom: 0;">
       <h1>GitHub Stars Surge</h1>
-      <p class="subtitle">Historical trending reports by week and month</p>
+      <p class="subtitle">Full daily / weekly / monthly trending boards. NEW means first time on that board.</p>
     </div>
   </header>
 
@@ -128,6 +128,10 @@
       <p class="meta">
         {{ report.label }} · {{ report.repos|length }} repos · {{ report.new_count }} new
         · fetched {{ report.fetched_at }}
+        {% if report.source == 'discord' %}
+          · <span class="badge">partial archive</span>
+          reconstructed from Discord (only first-seen repos were recorded)
+        {% endif %}
       </p>
 
       {% for repo in report.repos %}
