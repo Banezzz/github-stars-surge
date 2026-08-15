@@ -4,6 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GitHub Stars Surge</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ url_for('static', filename='favicon-32.png') }}" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
+  <meta name="theme-color" content="#0d1117">
   <style>
     :root {
       --bg: #0d1117;
@@ -31,7 +37,8 @@
       padding: 20px 20px 16px;
     }
     .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px 48px; }
-    h1 { margin: 0 0 4px; font-size: 22px; }
+    h1 { margin: 0 0 4px; font-size: 22px; display: flex; align-items: center; gap: 10px; }
+    .logo { width: 32px; height: 32px; border-radius: 8px; display: block; flex: none; }
     .subtitle { color: var(--muted); margin: 0; font-size: 14px; }
     .controls {
       display: flex;
@@ -95,7 +102,7 @@
 <body>
   <header>
     <div class="wrap" style="padding-bottom: 0;">
-      <h1>GitHub Stars Surge</h1>
+      <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">GitHub Stars Surge</h1>
       <p class="subtitle">Full daily / weekly / monthly trending boards. NEW means first time on that board.</p>
     </div>
   </header>

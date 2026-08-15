@@ -1,6 +1,6 @@
 """Local web viewer for historical trending star reports."""
 
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_from_directory
 
 import db
 from period import TIME_RANGE_LABELS, TIME_RANGES
@@ -8,6 +8,14 @@ from period import TIME_RANGE_LABELS, TIME_RANGES
 
 def create_app() -> Flask:
     app = Flask(__name__)
+
+    @app.route("/favicon.ico")
+    def favicon():
+        return send_from_directory(
+            app.static_folder,
+            "favicon.ico",
+            mimetype="image/vnd.microsoft.icon",
+        )
 
     @app.route("/")
     def index():

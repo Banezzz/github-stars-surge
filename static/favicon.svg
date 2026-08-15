@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="GitHub Stars Surge">
+  <rect x="1" y="1" width="62" height="62" rx="12" fill="#30363d"/>
+  <rect x="3.5" y="3.5" width="57" height="57" rx="10" fill="#0d1117"/>
+  <path fill="#3fb950" d="M32 14.5 36.9 27.2 50.8 28.2 40.2 37.2 43.6 50.8 32 43.6 20.4 50.8 23.8 37.2 13.2 28.2 27.1 27.2Z"/>
+  <path stroke="#7ee787" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none" d="M36.2 13.2 40.4 8.4 38.6 8.4 43.2 3.2"/>
+  <path stroke="#7ee787" stroke-width="2.6" stroke-linecap="round" fill="none" d="M44.2 11.2 47.6 7.2"/>
+  <circle cx="45.4" cy="14.2" r="1.5" fill="#7ee787"/>
+</svg>
