@@ -5,7 +5,28 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from period import format_period_label, parse_count, period_key
+from period import TIME_RANGES, format_period_label, parse_count, period_key
+
+REPO_CARD_FIELDS = ("name", "description", "url")
+
+
+def repo_card(item: dict | None = None, **extra) -> dict:
+    """Identity fields an agent needs: name, description, and link."""
+    source = item or {}
+    payload = {
+        "name": source.get("name") or extra.get("name") or "",
+        "description": source.get("description") or extra.get("description") or "",
+        "url": source.get("url") or extra.get("url") or "",
+    }
+    for key, value in extra.items():
+        if key not in payload:
+            payload[key] = value
+    return payload
+
+
+def as_repo_cards(items: list[dict]) -> list[dict]:
+    """Keep only name, description, and url."""
+    return [repo_card(item) for item in items]
 
 
 DB_PATH = Path(__file__).parent / "trending_history.db"
@@ -262,18 +283,20 @@ def get_report(time_range: str, period: str | None = None) -> dict | None:
         ).fetchall()
 
     repos = [
-        {
-            "rank": row["rank"],
-            "name": row["name"],
-            "description": row["description"] or "",
-            "language": row["language"] or "",
-            "total_stars": row["total_stars"],
-            "forks": row["forks"],
-            "stars_period": row["stars_period"],
-            "stars_period_label": row["stars_period_label"] or "",
-            "url": row["url"] or "",
-            "is_new": bool(row["is_new"]),
-        }
+        repo_card(
+            {
+                "name": row["name"],
+                "description": row["description"] or "",
+                "url": row["url"] or "",
+            },
+            rank=row["rank"],
+            language=row["language"] or "",
+            total_stars=row["total_stars"],
+            forks=row["forks"],
+            stars_period=row["stars_period"],
+            stars_period_label=row["stars_period_label"] or "",
+            is_new=bool(row["is_new"]),
+        )
         for row in rows
     ]
     return {
@@ -336,3 +359,313 @@ def set_snapshot_source(time_range: str, period_key: str, source: str) -> None:
             "UPDATE snapshots SET source = ? WHERE time_range = ? AND period_key = ?",
             (source, time_range, period_key),
         )
+
+
+REPO_SORTS = {
+    "peak_stars": "peak_stars DESC, appearances DESC, r.name ASC",
+    "appearances": "appearances DESC, peak_stars DESC, r.name ASC",
+    "first_seen": "first_seen ASC, r.name ASC",
+    "last_seen": "last_seen DESC, r.name ASC",
+    "name": "r.name ASC",
+}
+
+
+def overview() -> dict:
+    """High-level catalog stats for the public API."""
+    with get_conn() as conn:
+        unique_repos = conn.execute(
+            "SELECT COUNT(DISTINCT name) FROM snapshot_repos"
+        ).fetchone()[0]
+        snapshot_rows = conn.execute(
+            "SELECT COUNT(*) FROM snapshot_repos"
+        ).fetchone()[0]
+        ranges = {}
+        for time_range in TIME_RANGES:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS snapshots,
+                    MIN(period_key) AS first_period,
+                    MAX(period_key) AS last_period
+                FROM snapshots
+                WHERE time_range = ?
+                """,
+                (time_range,),
+            ).fetchone()
+            ranges[time_range] = {
+                "snapshots": row["snapshots"],
+                "first_period": row["first_period"],
+                "last_period": row["last_period"],
+            }
+        languages = conn.execute(
+            """
+            SELECT
+                language,
+                COUNT(DISTINCT name) AS repo_count
+            FROM snapshot_repos
+            WHERE language IS NOT NULL AND language != ''
+            GROUP BY language
+            ORDER BY repo_count DESC, language ASC
+            """
+        ).fetchall()
+
+    return {
+        "unique_repos": unique_repos,
+        "snapshot_rows": snapshot_rows,
+        "ranges": ranges,
+        "languages": [
+            {"name": row["language"], "repo_count": row["repo_count"]}
+            for row in languages
+        ],
+    }
+
+
+def list_all_periods(time_range: str | None = None) -> list[dict]:
+    """List stored periods, optionally limited to one time range."""
+    ranges = (time_range,) if time_range else TIME_RANGES
+    items = []
+    for current in ranges:
+        for item in list_periods(current):
+            items.append({**item, "time_range": current})
+    return items
+
+
+def _keyword_filter(keyword: str | None) -> tuple[str, list]:
+    """AND-match whitespace tokens against name, description, and language."""
+    if not keyword or not keyword.strip():
+        return "", []
+    clauses = []
+    params: list = []
+    for token in keyword.split():
+        like = f"%{token}%"
+        clauses.append(
+            "(r.name LIKE ? OR IFNULL(r.description, '') LIKE ? "
+            "OR IFNULL(r.language, '') LIKE ?)"
+        )
+        params.extend([like, like, like])
+    return " AND ".join(clauses), params
+
+
+def list_unique_repos(
+    keyword: str | None = None,
+    time_range: str | None = None,
+    period: str | None = None,
+    language: str | None = None,
+    min_stars: int | None = None,
+    sort: str = "peak_stars",
+    limit: int = 200,
+    offset: int = 0,
+) -> dict:
+    """Aggregate distinct repos across snapshots, with optional filters."""
+    if sort not in REPO_SORTS:
+        raise ValueError(f"unknown sort: {sort}")
+
+    where = ["1=1"]
+    params: list = []
+    if time_range:
+        where.append("s.time_range = ?")
+        params.append(time_range)
+    if period:
+        where.append("s.period_key = ?")
+        params.append(period)
+    if language:
+        where.append("r.language = ?")
+        params.append(language)
+    keyword_sql, keyword_params = _keyword_filter(keyword)
+    if keyword_sql:
+        where.append(keyword_sql)
+        params.extend(keyword_params)
+
+    having = ""
+    having_params: list = []
+    if min_stars is not None:
+        having = "HAVING MAX(r.total_stars) >= ?"
+        having_params.append(min_stars)
+
+    where_sql = " AND ".join(where)
+    order_sql = REPO_SORTS[sort]
+
+    with get_conn() as conn:
+        total = conn.execute(
+            f"""
+            SELECT COUNT(*) FROM (
+                SELECT r.name
+                FROM snapshot_repos r
+                JOIN snapshots s ON s.id = r.snapshot_id
+                WHERE {where_sql}
+                GROUP BY r.name
+                {having}
+            )
+            """,
+            (*params, *having_params),
+        ).fetchone()[0]
+
+        rows = conn.execute(
+            f"""
+            WITH filtered AS (
+                SELECT
+                    r.name,
+                    r.description,
+                    r.language,
+                    r.url,
+                    r.total_stars,
+                    r.forks,
+                    r.stars_period,
+                    s.time_range,
+                    s.period_key,
+                    s.fetched_at
+                FROM snapshot_repos r
+                JOIN snapshots s ON s.id = r.snapshot_id
+                WHERE {where_sql}
+            ),
+            ranked AS (
+                SELECT
+                    *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY name
+                        ORDER BY period_key DESC, fetched_at DESC
+                    ) AS rn
+                FROM filtered
+            ),
+            agg AS (
+                SELECT
+                    name,
+                    MAX(total_stars) AS peak_stars,
+                    MAX(forks) AS peak_forks,
+                    MAX(stars_period) AS peak_period_gain,
+                    COUNT(*) AS appearances,
+                    MIN(period_key) AS first_seen,
+                    MAX(period_key) AS last_seen,
+                    GROUP_CONCAT(DISTINCT time_range) AS time_ranges
+                FROM filtered
+                GROUP BY name
+                {having}
+            )
+            SELECT
+                r.name,
+                r.description,
+                r.language,
+                r.url,
+                a.peak_stars,
+                a.peak_forks,
+                a.peak_period_gain,
+                a.appearances,
+                a.first_seen,
+                a.last_seen,
+                a.time_ranges
+            FROM ranked r
+            JOIN agg a ON a.name = r.name
+            WHERE r.rn = 1
+            ORDER BY {order_sql}
+            LIMIT ? OFFSET ?
+            """,
+            (*params, *having_params, limit, offset),
+        ).fetchall()
+
+    items = []
+    for row in rows:
+        items.append(repo_card(
+            {
+                "name": row["name"],
+                "description": row["description"] or "",
+                "url": row["url"] or "",
+            },
+            language=row["language"] or "",
+            peak_stars=row["peak_stars"],
+            peak_forks=row["peak_forks"],
+            peak_period_gain=row["peak_period_gain"],
+            appearances=row["appearances"],
+            first_seen=row["first_seen"],
+            last_seen=row["last_seen"],
+            time_ranges=[
+                part for part in (row["time_ranges"] or "").split(",") if part
+            ],
+        ))
+    return {"total": total, "items": items}
+
+
+def get_repo_history(name: str) -> dict | None:
+    """Return one repo's latest summary plus every snapshot appearance."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                r.name,
+                r.description,
+                r.language,
+                r.url,
+                r.rank,
+                r.total_stars,
+                r.forks,
+                r.stars_period,
+                r.stars_period_label,
+                r.is_new,
+                s.time_range,
+                s.period_key,
+                s.fetched_at,
+                COALESCE(s.source, 'scrape') AS source
+            FROM snapshot_repos r
+            JOIN snapshots s ON s.id = r.snapshot_id
+            WHERE r.name = ? COLLATE NOCASE
+            ORDER BY s.period_key DESC, s.time_range ASC
+            """,
+            (name,),
+        ).fetchall()
+
+    if not rows:
+        return None
+
+    appearances = []
+    peak_stars = None
+    peak_forks = None
+    peak_period_gain = None
+    ranges: list[str] = []
+    for row in rows:
+        appearances.append({
+            "time_range": row["time_range"],
+            "period_key": row["period_key"],
+            "label": format_period_label(row["time_range"], row["period_key"]),
+            "fetched_at": row["fetched_at"],
+            "source": row["source"],
+            "rank": row["rank"],
+            "total_stars": row["total_stars"],
+            "forks": row["forks"],
+            "stars_period": row["stars_period"],
+            "stars_period_label": row["stars_period_label"] or "",
+            "is_new": bool(row["is_new"]),
+        })
+        if row["total_stars"] is not None:
+            peak_stars = row["total_stars"] if peak_stars is None else max(
+                peak_stars, row["total_stars"]
+            )
+        if row["forks"] is not None:
+            peak_forks = row["forks"] if peak_forks is None else max(
+                peak_forks, row["forks"]
+            )
+        if row["stars_period"] is not None:
+            peak_period_gain = (
+                row["stars_period"]
+                if peak_period_gain is None
+                else max(peak_period_gain, row["stars_period"])
+            )
+        if row["time_range"] not in ranges:
+            ranges.append(row["time_range"])
+
+    latest = rows[0]
+    period_keys = [row["period_key"] for row in rows]
+    return repo_card(
+        {
+            "name": latest["name"],
+            "description": latest["description"] or "",
+            "url": latest["url"] or "",
+        },
+        language=latest["language"] or "",
+        peak_stars=peak_stars,
+        peak_forks=peak_forks,
+        peak_period_gain=peak_period_gain,
+        appearances=len(appearances),
+        first_seen=min(period_keys),
+        last_seen=max(period_keys),
+        time_ranges=ranges,
+        history=appearances,
+    )

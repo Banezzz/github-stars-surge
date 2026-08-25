@@ -86,6 +86,26 @@ class SnapshotDbTests(unittest.TestCase):
         self.assertFalse(later["owner/repeat"])
         self.assertTrue(later["owner/fresh"])
 
+    def test_unique_repos_search_uses_description(self):
+        db.save_snapshot(
+            "weekly",
+            [_repo("cryptic/xyz", "88")],
+            datetime(2026, 8, 15),
+        )
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE snapshot_repos SET description = ? WHERE name = ?",
+                ("Open video generative models", "cryptic/xyz"),
+            )
+
+        result = db.list_unique_repos(keyword="video generative")
+        self.assertEqual(result["total"], 1)
+        item = result["items"][0]
+        self.assertEqual(list(item.keys())[:3], ["name", "description", "url"])
+        self.assertEqual(item["name"], "cryptic/xyz")
+        self.assertIn("video generative", item["description"])
+        self.assertEqual(item["url"], "https://github.com/cryptic/xyz")
+
     def test_empty_snapshot_is_refused(self):
         when = datetime(2026, 8, 15, 9, 0)
         db.save_snapshot("weekly", [_repo("owner/keep")], when)

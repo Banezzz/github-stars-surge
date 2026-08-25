@@ -59,8 +59,40 @@ The viewer reads snapshots from SQLite. Use the Daily / Weekly / Monthly tabs, t
 - `NEW` means the repo had not appeared in an earlier snapshot of that same time range
 - Filter the open report by repository name or language
 - An empty scrape does not overwrite that week or month
+- Public JSON API and docs are at `/docs` (top-right **API** link)
 
 History only exists after the tracker has been run. GitHub does not expose past trending pages, so older weeks/months cannot be backfilled.
+
+## Public API
+
+No key. CORS is open. Canonical host: `https://ghstar.banez.de`.
+
+Human docs and copy-paste agent prompts: [https://ghstar.banez.de/docs](https://ghstar.banez.de/docs)
+
+Every repository object always includes **name**, **description**, and **url**, in that order. Agents should read the description instead of guessing from the repository name.
+
+```bash
+curl https://ghstar.banez.de/api
+curl https://ghstar.banez.de/api/v1/overview
+curl https://ghstar.banez.de/api/v1/periods?range=weekly
+curl https://ghstar.banez.de/api/v1/snapshots/weekly
+curl "https://ghstar.banez.de/api/v1/search?q=video+generation&limit=50"
+curl "https://ghstar.banez.de/api/v1/repos?fields=card&limit=1000"
+```
+
+| Endpoint | Purpose |
+|------|------|
+| `GET /api` | Catalog, field list, query parameters |
+| `GET /api/v1/overview` | Snapshot counts, period span, languages |
+| `GET /api/v1/periods` | Time-segmented index (`?range=daily\|weekly\|monthly`) |
+| `GET /api/v1/snapshots/{range}` | Latest board for that range |
+| `GET /api/v1/snapshots/{range}/{period}` | One stored board |
+| `GET /api/v1/repos` | Aggregated unique repositories |
+| `GET /api/v1/repos/{owner}/{repo}` | One repo plus appearance history |
+| `GET /api/v1/search?q=` | Keyword search over name, description, language |
+| `GET /api/v1/prompts` | Example prompts for AI agents |
+
+`fields=card` returns only `name`, `description`, and `url`.
 
 ## Database
 
@@ -78,6 +110,7 @@ History only exists after the tracker has been run. GitHub does not expose past 
 | `SCHEDULE_TIME` | no | `09:00` | Daily fetch time (24h) |
 | `WEB_HOST` | no | `0.0.0.0` | History viewer bind address |
 | `WEB_PORT` | no | `8765` | History viewer port |
+| `PUBLIC_BASE_URL` | no | `https://ghstar.banez.de` | Canonical public API / docs URL |
 
 ## Tests
 

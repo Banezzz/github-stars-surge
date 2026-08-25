@@ -37,6 +37,28 @@
       padding: 20px 20px 16px;
     }
     .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px 48px; }
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .header-actions { display: flex; gap: 8px; flex: none; }
+    .header-actions a {
+      background: var(--chip);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .header-actions a:hover { border-color: var(--link); text-decoration: none; }
+    .header-actions a.active {
+      background: var(--green-dim);
+      border-color: var(--green-dim);
+    }
     h1 { margin: 0 0 4px; font-size: 22px; display: flex; align-items: center; gap: 10px; }
     .logo { width: 32px; height: 32px; border-radius: 8px; display: block; flex: none; }
     .subtitle { color: var(--muted); margin: 0; font-size: 14px; }
@@ -101,9 +123,15 @@
 </head>
 <body>
   <header>
-    <div class="wrap" style="padding-bottom: 0;">
-      <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">GitHub Stars Surge</h1>
-      <p class="subtitle">Full daily / weekly / monthly trending boards. NEW means first time on that board.</p>
+    <div class="wrap header-bar" style="padding-bottom: 0;">
+      <div>
+        <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">GitHub Stars Surge</h1>
+        <p class="subtitle">Full daily / weekly / monthly trending boards. NEW means first time on that board.</p>
+      </div>
+      <nav class="header-actions" aria-label="Site">
+        <a href="/" class="active">Reports</a>
+        <a href="/docs">API</a>
+      </nav>
     </div>
   </header>
 

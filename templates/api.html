@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API · GitHub Stars Surge</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ url_for('static', filename='favicon-32.png') }}" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
+  <meta name="theme-color" content="#0d1117">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --green: #3fb950;
+      --green-dim: #238636;
+      --link: #58a6ff;
+      --chip: #21262d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 20px 16px;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px 64px; }
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .header-actions { display: flex; gap: 8px; flex: none; }
+    .header-actions a {
+      background: var(--chip);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .header-actions a:hover { border-color: var(--link); text-decoration: none; }
+    .header-actions a.active {
+      background: var(--green-dim);
+      border-color: var(--green-dim);
+    }
+    h1 { margin: 0 0 4px; font-size: 22px; display: flex; align-items: center; gap: 10px; }
+    h2 { margin: 36px 0 12px; font-size: 18px; }
+    h3 { margin: 20px 0 8px; font-size: 15px; }
+    .logo { width: 32px; height: 32px; border-radius: 8px; display: block; flex: none; }
+    .subtitle { color: var(--muted); margin: 0; font-size: 14px; }
+    .lead { color: var(--muted); margin: 20px 0 0; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin: 0 0 12px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 10px 8px 0; vertical-align: top; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; }
+    code, .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--chip);
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    pre {
+      background: #0b0f14;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      overflow: auto;
+      font-size: 13px;
+      line-height: 1.45;
+      margin: 8px 0 0;
+    }
+    pre code { background: none; padding: 0; }
+    .row-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    button.copy {
+      background: var(--chip);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button.copy:hover { border-color: var(--link); }
+    .badge {
+      display: inline-block;
+      background: #1f6feb33;
+      color: #79c0ff;
+      border-radius: 999px;
+      padding: 1px 8px;
+      font-size: 12px;
+    }
+    ul { padding-left: 20px; }
+    li { margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap header-bar" style="padding-bottom: 0;">
+      <div>
+        <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">Public API</h1>
+        <p class="subtitle">No key. CORS open. Historical GitHub Trending snapshots for people and agents.</p>
+      </div>
+      <nav class="header-actions" aria-label="Site">
+        <a href="/">Reports</a>
+        <a href="/docs" class="active">API</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <p class="lead">
+      New visitors cannot scrape every past trending board, and a repo name often
+      hides what the project actually does. This API returns stored snapshots so
+      an agent can pull the catalog, then read each repo's
+      <code>name</code>, <code>description</code>, and <code>url</code>.
+    </p>
+
+    <h2>Base URL</h2>
+    <div class="card">
+      <p><code>{{ base_url }}</code> · authentication: none · <a href="/api">JSON catalog</a> · <a href="/api/openapi.json">OpenAPI</a></p>
+      <pre><code>curl {{ base_url }}/api/v1/overview
+curl "{{ base_url }}/api/v1/search?q=video+generation&amp;limit=50"
+curl {{ base_url }}/api/v1/snapshots/weekly
+curl "{{ base_url }}/api/v1/repos?fields=card&amp;limit=1000"</code></pre>
+    </div>
+
+    <h2>What every repo object contains</h2>
+    <div class="card">
+      <p>These three fields are always first. Use the description; do not guess from the name.</p>
+      <table>
+        <tr><th>Field</th><th>Meaning</th></tr>
+        <tr><td><code>name</code></td><td><span class="mono">owner/repo</span></td></tr>
+        <tr><td><code>description</code></td><td>GitHub about text captured with the snapshot</td></tr>
+        <tr><td><code>url</code></td><td>Canonical GitHub link</td></tr>
+      </table>
+      <pre><code>{
+  "name": "Wan-Video/Wan2.2",
+  "description": "Wan: Open and Advanced Large-Scale Video Generative Models",
+  "url": "https://github.com/Wan-Video/Wan2.2"
+}</code></pre>
+      <p>Pass <code>fields=card</code> to return only those three fields.</p>
+    </div>
+
+    <h2>Endpoints</h2>
+    <div class="card">
+      <table>
+        <tr><th>Method</th><th>Path</th><th>Returns</th></tr>
+        {% for item in catalog.endpoints %}
+        <tr>
+          <td><span class="badge">{{ item.method }}</span></td>
+          <td><code>{{ item.path }}</code></td>
+          <td>{{ item.description }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    <h3>Time-segmented boards</h3>
+    <div class="card">
+      <p>List stored periods, then fetch one daily / weekly / monthly board.</p>
+      <pre><code>GET {{ base_url }}/api/v1/periods?range=weekly
+GET {{ base_url }}/api/v1/snapshots/weekly
+GET {{ base_url }}/api/v1/snapshots/weekly/2026-W35
+GET {{ base_url }}/api/v1/snapshots/monthly/2026-08</code></pre>
+    </div>
+
+    <h3>All repos and keyword search</h3>
+    <div class="card">
+      <p>Aggregated unique repositories across history. Keyword search matches <em>all</em> tokens against name, description, and language.</p>
+      <pre><code>GET {{ base_url }}/api/v1/repos?limit=200
+GET {{ base_url }}/api/v1/repos?min_stars=5000&amp;sort=peak_stars
+GET {{ base_url }}/api/v1/search?q=video+generation&amp;limit=100
+GET {{ base_url }}/api/v1/repos/Wan-Video/Wan2.2</code></pre>
+    </div>
+
+    <h2>Query parameters</h2>
+    <div class="card">
+      <table>
+        {% for key, value in catalog.query_parameters.items() %}
+        <tr><td><code>{{ key }}</code></td><td>{{ value }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    <h2>Example agent prompts</h2>
+    <p class="subtitle">Paste the prompt, the docs URL, and the base URL into an agent. Prompts are also at <a href="/api/v1/prompts"><code>/api/v1/prompts</code></a>.</p>
+    {% for item in prompts %}
+    <div class="card">
+      <div class="row-top">
+        <h3 style="margin:0;">{{ item.title }}</h3>
+        <button class="copy" type="button" data-copy="prompt-{{ item.id }}">Copy prompt</button>
+      </div>
+      <pre><code id="prompt-{{ item.id }}">{{ item.prompt }}</code></pre>
+    </div>
+    {% endfor %}
+  </main>
+  <script>
+    document.querySelectorAll("button.copy").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const node = document.getElementById(button.getAttribute("data-copy"));
+        if (!node) return;
+        await navigator.clipboard.writeText(node.textContent);
+        button.textContent = "Copied";
+        setTimeout(() => { button.textContent = "Copy prompt"; }, 1500);
+      });
+    });
+  </script>
+</body>
+</html>

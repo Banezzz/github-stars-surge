@@ -2,12 +2,15 @@
 
 from flask import Flask, render_template, request, send_from_directory
 
+import api
 import db
 from period import TIME_RANGE_LABELS, TIME_RANGES
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    app.json.sort_keys = False
+    api.register(app)
 
     @app.route("/favicon.ico")
     def favicon():

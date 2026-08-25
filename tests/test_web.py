@@ -52,6 +52,7 @@ class WebViewerTests(unittest.TestCase):
         self.assertIn("stars this week", body)
         self.assertIn('id="q"', body)
         self.assertIn("filterCards", body)
+        self.assertIn('href="/docs"', body)
 
     def test_monthly_history_page(self):
         response = self.client.get("/?range=monthly&period=2026-08")
