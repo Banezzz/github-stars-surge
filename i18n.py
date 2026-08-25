@@ -93,6 +93,63 @@ STRINGS = {
         "prompt_agent-stack": "Map a coding-agent / harness stack",
         "prompt_period-digest": "Summarize a time window",
         "prompt_keyword-scan": "Scan history for a topic",
+        "prompt_body_video-generation-harness": (
+            "You are helping me design a video generation harness.\n\n"
+            "Use the public GitHub Stars Surge API at https://ghstar.banez.de. "
+            "No API key is required. Prefer JSON endpoints under /api/v1.\n\n"
+            "1. GET https://ghstar.banez.de/api/v1/overview\n"
+            "2. GET https://ghstar.banez.de/api/v1/search?q=video+generation&limit=200\n"
+            "3. Repeat search for these keywords: diffusion, wan, hunyuan, cogvideo, "
+            "animate, ffmpeg, comfyui, ltx, kandinsky\n"
+            "4. GET https://ghstar.banez.de/api/v1/snapshots/weekly\n"
+            "5. GET https://ghstar.banez.de/api/v1/snapshots/monthly\n"
+            "6. For the most relevant repos, GET "
+            "https://ghstar.banez.de/api/v1/repos/{owner}/{repo}\n\n"
+            "Every repo object includes name, description, and url. "
+            "Read the description — names alone rarely explain what a repo does. "
+            "Prefer high peak_stars and multiple appearances. "
+            "Summarize the strongest tools, language, why they keep trending, "
+            "and a short clone-first shortlist. Call out gaps this history "
+            "does not cover."
+        ),
+        "prompt_body_agent-stack": (
+            "I am choosing libraries for an AI coding agent.\n\n"
+            "Query https://ghstar.banez.de/api/v1 with no authentication.\n\n"
+            "1. GET /api/v1/search?q=agent+harness&limit=200\n"
+            "2. Also search: claude, cursor, mcp, playwright, sandbox, eval\n"
+            "3. GET /api/v1/repos?language=TypeScript&min_stars=1000&limit=100\n"
+            "4. GET /api/v1/repos?language=Python&min_stars=1000&limit=100\n"
+            "5. GET /api/v1/periods?range=weekly to see which weeks exist, "
+            "then pull a few /api/v1/snapshots/weekly/{period}\n\n"
+            "Group results into: agent runtimes, tool/MCP servers, eval harnesses, "
+            "and browser/sandbox runners. Use each repo's description to decide "
+            "the group — do not infer purpose from the name. Return a comparison "
+            "table with name, description, url, peak stars, first/last seen, "
+            "and one-line fit notes."
+        ),
+        "prompt_body_period-digest": (
+            "Write a digest of GitHub trending history for a specific window.\n\n"
+            "Base URL: https://ghstar.banez.de (public API, no key).\n\n"
+            "1. GET /api/v1/periods?range=weekly\n"
+            "2. GET /api/v1/periods?range=monthly\n"
+            "3. Fetch /api/v1/snapshots/{range}/{period} for the periods I care about. "
+            "If I do not name a period, use the latest weekly and monthly snapshots.\n"
+            "4. Highlight NEW repos and anything with a large stars_period gain.\n\n"
+            "Return: top 10 overall, top 10 new, notable language mix, and 5 repos "
+            "worth watching next week."
+        ),
+        "prompt_body_keyword-scan": (
+            "I want every high-signal trending repo related to this topic: "
+            "{TOPIC}.\n\n"
+            "Use https://ghstar.banez.de/api/v1/search?q={TOPIC}&limit=200 "
+            "and follow up with related keywords you infer from descriptions. "
+            "Then GET /api/v1/repos/{owner}/{repo} for the top matches.\n\n"
+            "Every repo object includes name, description, and url. "
+            "Judge relevance from the description, not the repository name. "
+            "Deduplicate by name. Rank by peak_stars, then appearances. "
+            "Return markdown with name, description, url, language, peak stars, "
+            "first/last seen, and why it is relevant to {TOPIC}."
+        ),
     },
     "zh": {
         "site_title": "GitHub Stars Surge",
@@ -175,8 +232,83 @@ STRINGS = {
         "prompt_agent-stack": "梳理编程 Agent / harness 技术栈",
         "prompt_period-digest": "汇总某一时间窗口",
         "prompt_keyword-scan": "按主题扫描历史仓库",
+        "prompt_body_video-generation-harness": (
+            "请帮我设计一套视频生成 harness。\n\n"
+            "使用 GitHub Stars Surge 公开 API：https://ghstar.banez.de 。"
+            "不需要 API key。优先请求 /api/v1 下的 JSON 接口。\n\n"
+            "1. GET https://ghstar.banez.de/api/v1/overview\n"
+            "2. GET https://ghstar.banez.de/api/v1/search?q=video+generation&limit=200\n"
+            "3. 再用这些关键词各搜一次：diffusion, wan, hunyuan, cogvideo, "
+            "animate, ffmpeg, comfyui, ltx, kandinsky\n"
+            "4. GET https://ghstar.banez.de/api/v1/snapshots/weekly\n"
+            "5. GET https://ghstar.banez.de/api/v1/snapshots/monthly\n"
+            "6. 对最相关的仓库再请求 "
+            "https://ghstar.banez.de/api/v1/repos/{owner}/{repo}\n\n"
+            "每个仓库对象都包含 name、description 和 url。"
+            "请阅读简介，不要只靠仓库名判断用途。"
+            "优先选择 peak_stars 高、多次上榜的仓库。"
+            "总结最强的工具、语言、持续上榜的原因，以及一份可以先 clone 的短名单。"
+            "并说明这份历史数据覆盖不到的空白。"
+        ),
+        "prompt_body_agent-stack": (
+            "我在为 AI 编程 Agent 挑选库。\n\n"
+            "请求 https://ghstar.banez.de/api/v1 ，无需鉴权。\n\n"
+            "1. GET /api/v1/search?q=agent+harness&limit=200\n"
+            "2. 再搜索：claude, cursor, mcp, playwright, sandbox, eval\n"
+            "3. GET /api/v1/repos?language=TypeScript&min_stars=1000&limit=100\n"
+            "4. GET /api/v1/repos?language=Python&min_stars=1000&limit=100\n"
+            "5. GET /api/v1/periods?range=weekly 查看有哪些周，"
+            "再拉取几期 /api/v1/snapshots/weekly/{period}\n\n"
+            "把结果分成：Agent 运行时、工具/MCP 服务、评测 harness、"
+            "以及浏览器/沙箱执行器。根据每个仓库的 description 归类，"
+            "不要从名字推断用途。返回对照表，包含 name、description、url、"
+            "peak stars、首次/最近出现时间，以及一句适配说明。"
+        ),
+        "prompt_body_period-digest": (
+            "请写一份指定时间窗口的 GitHub 热门历史摘要。\n\n"
+            "基址：https://ghstar.banez.de （公开 API，无需密钥）。\n\n"
+            "1. GET /api/v1/periods?range=weekly\n"
+            "2. GET /api/v1/periods?range=monthly\n"
+            "3. 对关心的时间段请求 /api/v1/snapshots/{range}/{period}。"
+            "如果我没有指定时间段，就用最新的周榜和月榜。\n"
+            "4. 重点标出 NEW 仓库，以及 stars_period 涨幅很大的项目。\n\n"
+            "请返回：总榜前 10、新上榜前 10、值得注意的语言分布，"
+            "以及下周值得继续观察的 5 个仓库。"
+        ),
+        "prompt_body_keyword-scan": (
+            "我想找出和这个主题相关、信号足够强的所有热门仓库：{TOPIC}。\n\n"
+            "使用 https://ghstar.banez.de/api/v1/search?q={TOPIC}&limit=200 ，"
+            "再根据简介推断相关关键词继续搜索。"
+            "对排名靠前的结果再请求 /api/v1/repos/{owner}/{repo}。\n\n"
+            "每个仓库对象都包含 name、description 和 url。"
+            "相关性请看简介，不要只看仓库名。"
+            "按仓库名去重。先按 peak_stars，再按 appearances 排序。"
+            "用 markdown 返回 name、description、url、语言、peak stars、"
+            "首次/最近出现时间，以及它和 {TOPIC} 的关系。"
+        ),
     },
 }
+
+
+PROMPT_IDS = (
+    "video-generation-harness",
+    "agent-stack",
+    "period-digest",
+    "keyword-scan",
+)
+
+
+def example_prompts(lang: str) -> list[dict]:
+    """Localized agent prompts for the docs page and /api/v1/prompts."""
+    return [
+        {
+            "id": prompt_id,
+            "title": translate(lang, f"prompt_{prompt_id}"),
+            "prompt": translate(lang, f"prompt_body_{prompt_id}"),
+            "lang": lang,
+        }
+        for prompt_id in PROMPT_IDS
+    ]
 
 
 def normalize_lang(value: str | None) -> str | None:

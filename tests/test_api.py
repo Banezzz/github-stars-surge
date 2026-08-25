@@ -70,6 +70,12 @@ class PublicApiTests(unittest.TestCase):
         self.assertIn("复制提示词", body)
         self.assertIn("harry0703/MoneyPrinterTurbo", body)
         self.assertIn("/api/v1/search", body)
+        self.assertIn("请帮我设计一套视频生成 harness", body)
+        self.assertIn("我在为 AI 编程 Agent 挑选库", body)
+        self.assertNotIn("You are helping me design a video generation harness", body)
+        self.assertIn("请帮我设计一套视频生成 harness。", body)
+        self.assertIn("请阅读简介，不要只靠仓库名判断用途。", body)
+        self.assertNotIn("You are helping me design a video generation harness.", body)
 
     def test_catalog_lists_repo_identity_fields(self):
         response = self.client.get("/api")
@@ -135,7 +141,16 @@ class PublicApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         prompts = response.get_json()["data"]
         self.assertGreaterEqual(len(prompts), 1)
+        self.assertEqual(prompts[0]["lang"], "en")
         self.assertIn("description", prompts[0]["prompt"])
+
+    def test_prompts_follow_ui_language(self):
+        response = self.client.get("/api/v1/prompts?lang=zh")
+        self.assertEqual(response.status_code, 200)
+        prompts = response.get_json()["data"]
+        self.assertEqual(prompts[0]["lang"], "zh")
+        self.assertIn("请帮我设计一套视频生成 harness", prompts[0]["prompt"])
+        self.assertIn("{TOPIC}", prompts[3]["prompt"])
 
 
 if __name__ == "__main__":
