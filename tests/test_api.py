@@ -57,6 +57,8 @@ class PublicApiTests(unittest.TestCase):
         self.assertIn("description", body)
         self.assertIn("Copy prompt", body)
         self.assertIn("/api/v1/search", body)
+        self.assertIn("harry0703/MoneyPrinterTurbo", body)
+        self.assertNotIn("Wan-Video/Wan2.2", body)
 
     def test_catalog_lists_repo_identity_fields(self):
         response = self.client.get("/api")
