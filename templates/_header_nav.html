@@ -1,0 +1,8 @@
+<nav class="header-actions" aria-label="{{ t('nav_site') }}">
+  <a href="{{ href_reports }}" class="{% if active_nav == 'reports' %}active{% endif %}">{{ t('nav_reports') }}</a>
+  <a href="{{ href_docs }}" class="{% if active_nav == 'docs' %}active{% endif %}">{{ t('nav_api') }}</a>
+  <span class="lang-switch" role="group" aria-label="Language">
+    <a href="{{ href_lang_en }}" class="{% if lang == 'en' %}active{% endif %}" hreflang="en">{{ t('lang_en') }}</a>
+    <a href="{{ href_lang_zh }}" class="{% if lang == 'zh' %}active{% endif %}" hreflang="zh">{{ t('lang_zh') }}</a>
+  </span>
+</nav>

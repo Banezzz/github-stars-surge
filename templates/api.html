@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ html_lang }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>API · GitHub Stars Surge</title>
+  <title>{{ t('docs_title') }}</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="icon" href="{{ url_for('static', filename='favicon-32.png') }}" type="image/png" sizes="32x32">
@@ -43,7 +43,8 @@
       align-items: flex-start;
       gap: 16px;
     }
-    .header-actions { display: flex; gap: 8px; flex: none; }
+    .header-bar { flex-wrap: wrap; }
+    .header-actions { display: flex; gap: 8px; flex: none; flex-wrap: wrap; }
     .header-actions a {
       background: var(--chip);
       color: var(--text);
@@ -59,6 +60,10 @@
       background: var(--green-dim);
       border-color: var(--green-dim);
     }
+    .lang-switch { display: flex; gap: 0; }
+    .lang-switch a { border-radius: 0; }
+    .lang-switch a:first-child { border-radius: 8px 0 0 8px; }
+    .lang-switch a:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
     h1 { margin: 0 0 4px; font-size: 22px; display: flex; align-items: center; gap: 10px; }
     h2 { margin: 36px 0 12px; font-size: 18px; }
     h3 { margin: 20px 0 8px; font-size: 15px; }
@@ -125,55 +130,47 @@
   <header>
     <div class="wrap header-bar" style="padding-bottom: 0;">
       <div>
-        <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">Public API</h1>
-        <p class="subtitle">No key. CORS open. Historical GitHub Trending snapshots for people and agents.</p>
+        <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">{{ t('docs_heading') }}</h1>
+        <p class="subtitle">{{ t('docs_subtitle') }}</p>
       </div>
-      <nav class="header-actions" aria-label="Site">
-        <a href="/">Reports</a>
-        <a href="/docs" class="active">API</a>
-      </nav>
+      {% include "_header_nav.html" %}
     </div>
   </header>
 
   <main class="wrap">
-    <p class="lead">
-      New visitors cannot scrape every past trending board, and a repo name often
-      hides what the project actually does. This API returns stored snapshots so
-      an agent can pull the catalog, then read each repo's
-      <code>name</code>, <code>description</code>, and <code>url</code>.
-    </p>
+    <p class="lead">{{ t('docs_lead') }}</p>
 
-    <h2>Base URL</h2>
+    <h2>{{ t('docs_base_url') }}</h2>
     <div class="card">
-      <p><code>{{ base_url }}</code> · authentication: none · <a href="/api">JSON catalog</a> · <a href="/api/openapi.json">OpenAPI</a></p>
+      <p><code>{{ base_url }}</code> · {{ t('docs_auth_none') }} · <a href="/api">{{ t('docs_json_catalog') }}</a> · <a href="/api/openapi.json">OpenAPI</a></p>
       <pre><code>curl {{ base_url }}/api/v1/overview
 curl "{{ base_url }}/api/v1/search?q=video+generation&amp;limit=50"
 curl {{ base_url }}/api/v1/snapshots/weekly
 curl "{{ base_url }}/api/v1/repos?fields=card&amp;limit=1000"</code></pre>
     </div>
 
-    <h2>What every repo object contains</h2>
+    <h2>{{ t('docs_repo_fields') }}</h2>
     <div class="card">
-      <p>These three fields are always first. Use the description; do not guess from the name.</p>
+      <p>{{ t('docs_repo_fields_note') }}</p>
       <table>
-        <tr><th>Field</th><th>Meaning</th></tr>
-        <tr><td><code>name</code></td><td><span class="mono">owner/repo</span></td></tr>
-        <tr><td><code>description</code></td><td>GitHub about text captured with the snapshot</td></tr>
-        <tr><td><code>url</code></td><td>Canonical GitHub link</td></tr>
+        <tr><th>{{ t('docs_field') }}</th><th>{{ t('docs_meaning') }}</th></tr>
+        <tr><td><code>name</code></td><td><span class="mono">{{ t('docs_field_name') }}</span></td></tr>
+        <tr><td><code>description</code></td><td>{{ t('docs_field_description') }}</td></tr>
+        <tr><td><code>url</code></td><td>{{ t('docs_field_url') }}</td></tr>
       </table>
       <pre><code>{
   "name": "harry0703/MoneyPrinterTurbo",
   "description": "Generate HD short videos from a topic or keyword with an automated AI workflow.",
   "url": "https://github.com/harry0703/MoneyPrinterTurbo"
 }</code></pre>
-      <p>Pass <code>fields=card</code> to return only those three fields.</p>
+      <p>{{ t('docs_fields_card') }}</p>
     </div>
 
-    <h2>Endpoints</h2>
+    <h2>{{ t('docs_endpoints') }}</h2>
     <div class="card">
       <table>
-        <tr><th>Method</th><th>Path</th><th>Returns</th></tr>
-        {% for item in catalog.endpoints %}
+        <tr><th>{{ t('docs_method') }}</th><th>{{ t('docs_path') }}</th><th>{{ t('docs_returns') }}</th></tr>
+        {% for item in endpoints %}
         <tr>
           <td><span class="badge">{{ item.method }}</span></td>
           <td><code>{{ item.path }}</code></td>
@@ -183,40 +180,40 @@ curl "{{ base_url }}/api/v1/repos?fields=card&amp;limit=1000"</code></pre>
       </table>
     </div>
 
-    <h3>Time-segmented boards</h3>
+    <h3>{{ t('docs_boards') }}</h3>
     <div class="card">
-      <p>List stored periods, then fetch one daily / weekly / monthly board.</p>
+      <p>{{ t('docs_boards_note') }}</p>
       <pre><code>GET {{ base_url }}/api/v1/periods?range=weekly
 GET {{ base_url }}/api/v1/snapshots/weekly
 GET {{ base_url }}/api/v1/snapshots/weekly/2026-W35
 GET {{ base_url }}/api/v1/snapshots/monthly/2026-08</code></pre>
     </div>
 
-    <h3>All repos and keyword search</h3>
+    <h3>{{ t('docs_search') }}</h3>
     <div class="card">
-      <p>Aggregated unique repositories across history. Keyword search matches <em>all</em> tokens against name, description, and language.</p>
+      <p>{{ t('docs_search_note') }}</p>
       <pre><code>GET {{ base_url }}/api/v1/repos?limit=200
 GET {{ base_url }}/api/v1/repos?min_stars=5000&amp;sort=peak_stars
 GET {{ base_url }}/api/v1/search?q=video+generation&amp;limit=100
 GET {{ base_url }}/api/v1/repos/harry0703/MoneyPrinterTurbo</code></pre>
     </div>
 
-    <h2>Query parameters</h2>
+    <h2>{{ t('docs_params') }}</h2>
     <div class="card">
       <table>
-        {% for key, value in catalog.query_parameters.items() %}
+        {% for key, value in parameters %}
         <tr><td><code>{{ key }}</code></td><td>{{ value }}</td></tr>
         {% endfor %}
       </table>
     </div>
 
-    <h2>Example agent prompts</h2>
-    <p class="subtitle">Paste the prompt, the docs URL, and the base URL into an agent. Prompts are also at <a href="/api/v1/prompts"><code>/api/v1/prompts</code></a>.</p>
+    <h2>{{ t('docs_prompts') }}</h2>
+    <p class="subtitle">{{ t('docs_prompts_note') }} <a href="/api/v1/prompts"><code>/api/v1/prompts</code></a>.</p>
     {% for item in prompts %}
     <div class="card">
       <div class="row-top">
         <h3 style="margin:0;">{{ item.title }}</h3>
-        <button class="copy" type="button" data-copy="prompt-{{ item.id }}">Copy prompt</button>
+        <button class="copy" type="button" data-copy="prompt-{{ item.id }}" data-label="{{ t('copy_prompt') }}" data-copied="{{ t('copied') }}">{{ t('copy_prompt') }}</button>
       </div>
       <pre><code id="prompt-{{ item.id }}">{{ item.prompt }}</code></pre>
     </div>
@@ -228,8 +225,10 @@ GET {{ base_url }}/api/v1/repos/harry0703/MoneyPrinterTurbo</code></pre>
         const node = document.getElementById(button.getAttribute("data-copy"));
         if (!node) return;
         await navigator.clipboard.writeText(node.textContent);
-        button.textContent = "Copied";
-        setTimeout(() => { button.textContent = "Copy prompt"; }, 1500);
+        button.textContent = button.getAttribute("data-copied") || "Copied";
+        setTimeout(() => {
+          button.textContent = button.getAttribute("data-label") || "Copy prompt";
+        }, 1500);
       });
     });
   </script>

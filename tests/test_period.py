@@ -36,6 +36,13 @@ class PeriodLabelTests(unittest.TestCase):
     def test_monthly_label(self):
         self.assertEqual(format_period_label("monthly", "2026-08"), "August 2026")
 
+    def test_chinese_labels(self):
+        self.assertEqual(format_period_label("monthly", "2026-08", lang="zh"), "2026年8月")
+        self.assertEqual(format_period_label("daily", "2026-08-15", lang="zh"), "2026年8月15日")
+        weekly = format_period_label("weekly", "2026-W33", lang="zh")
+        self.assertIn("8月10日", weekly)
+        self.assertIn("2026-W33", weekly)
+
 
 class ParseCountTests(unittest.TestCase):
     def test_plain_number(self):

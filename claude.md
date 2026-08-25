@@ -24,6 +24,7 @@ Lightweight GitHub Trending tracker. Snapshots daily / weekly / monthly repo lis
 - `scraper.py`: GitHub trending fetch + HTML parse
 - `web.py`: Flask app for historical reports
 - `api.py`: public JSON API, CORS, docs page, example prompts
+- `i18n.py`: English / Chinese UI strings and language cookie
 - `main.py`: job, Discord, CLI, scheduler
 - `templates/report.html`: week/month report page
 - `templates/api.html`: public API docs and agent prompts

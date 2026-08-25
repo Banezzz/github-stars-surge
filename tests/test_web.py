@@ -52,7 +52,8 @@ class WebViewerTests(unittest.TestCase):
         self.assertIn("stars this week", body)
         self.assertIn('id="q"', body)
         self.assertIn("filterCards", body)
-        self.assertIn('href="/docs"', body)
+        self.assertIn('href="/docs?lang=en"', body)
+        self.assertIn("lang-switch", body)
 
     def test_monthly_history_page(self):
         response = self.client.get("/?range=monthly&period=2026-08")
@@ -86,6 +87,25 @@ class WebViewerTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("partial archive", body)
         self.assertIn("NEW", body)
+
+    def test_chinese_ui_keeps_repo_text(self):
+        response = self.client.get("/?range=weekly&lang=zh")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("报告", body)
+        self.assertIn("周榜", body)
+        self.assertIn("本周新增星标", body)
+        self.assertIn("owner/demo", body)
+        self.assertIn("A demo repo", body)
+        self.assertIn('lang="zh-CN"', body)
+        self.assertIn('href="/docs?lang=zh"', body)
+
+    def test_language_cookie_persists(self):
+        first = self.client.get("/?lang=zh")
+        self.assertEqual(first.status_code, 200)
+        later = self.client.get("/")
+        self.assertIn("报告", later.get_data(as_text=True))
+        self.assertIn("A demo repo", later.get_data(as_text=True))
 
 
 if __name__ == "__main__":

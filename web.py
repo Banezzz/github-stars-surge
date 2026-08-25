@@ -4,12 +4,14 @@ from flask import Flask, render_template, request, send_from_directory
 
 import api
 import db
-from period import TIME_RANGE_LABELS, TIME_RANGES
+import i18n
+from period import TIME_RANGES
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
     app.json.sort_keys = False
+    i18n.register(app)
     api.register(app)
 
     @app.route("/favicon.ico")
@@ -35,18 +37,23 @@ def create_app() -> Flask:
 
         report = db.get_report(time_range, selected) if selected else None
         prev_period, next_period = _neighbors(periods, selected)
+        lang = i18n.current_lang()
+        periods, report = i18n.localize_period_labels(
+            time_range, periods, report, lang
+        )
 
         return render_template(
             "report.html",
             time_range=time_range,
             ranges=TIME_RANGES,
-            range_labels=TIME_RANGE_LABELS,
+            range_labels=i18n.range_labels(lang),
             periods=periods,
             selected=selected,
             report=report,
             prev_period=prev_period,
             next_period=next_period,
-            stars_label=_stars_label(time_range),
+            stars_label=i18n.stars_label(lang, time_range),
+            active_nav="reports",
         )
 
     return app
@@ -64,14 +71,6 @@ def _neighbors(periods: list[dict], selected: str | None) -> tuple[str | None, s
     newer = keys[index - 1] if index > 0 else None
     older = keys[index + 1] if index + 1 < len(keys) else None
     return older, newer
-
-
-def _stars_label(time_range: str) -> str:
-    return {
-        "daily": "stars today",
-        "weekly": "stars this week",
-        "monthly": "stars this month",
-    }[time_range]
 
 
 def run_web(host: str = "0.0.0.0", port: int = 8765) -> None:

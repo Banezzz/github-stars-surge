@@ -6,7 +6,8 @@ from datetime import datetime
 from flask import Blueprint, jsonify, render_template, request
 
 import db
-from period import TIME_RANGE_LABELS, TIME_RANGES
+import i18n
+from period import TIME_RANGES
 
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://ghstar.banez.de").rstrip("/")
 DEFAULT_LIMIT = 200
@@ -394,13 +395,55 @@ def api_prompts():
 
 @docs_bp.route("/docs")
 def docs_page():
+    lang = i18n.current_lang()
+    catalog = _catalog()
+    endpoints = [
+        {
+            **item,
+            "description": i18n.translate(lang, f"endpoint_{item['path']}"),
+        }
+        for item in catalog["endpoints"]
+    ]
+    param_keys = (
+        "range",
+        "period",
+        "q",
+        "language",
+        "min_stars",
+        "sort",
+        "limit",
+        "offset",
+        "fields",
+    )
+    parameters = [
+        (
+            key,
+            i18n.translate(
+                lang,
+                f"param_{key}",
+                default_limit=DEFAULT_LIMIT,
+                max_limit=MAX_LIMIT,
+            ),
+        )
+        for key in param_keys
+    ]
+    prompts = [
+        {
+            **item,
+            "title": i18n.translate(lang, f"prompt_{item['id']}"),
+        }
+        for item in EXAMPLE_PROMPTS
+    ]
     return render_template(
         "api.html",
         base_url=public_base(),
         ranges=TIME_RANGES,
-        range_labels=TIME_RANGE_LABELS,
-        prompts=EXAMPLE_PROMPTS,
+        range_labels=i18n.range_labels(lang),
+        prompts=prompts,
         default_limit=DEFAULT_LIMIT,
         max_limit=MAX_LIMIT,
-        catalog=_catalog(),
+        catalog=catalog,
+        endpoints=endpoints,
+        parameters=parameters,
+        active_nav="docs",
     )

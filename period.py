@@ -45,10 +45,29 @@ def period_bounds(time_range: str, key: str) -> tuple[datetime, datetime]:
     raise ValueError(f"Unknown time range: {time_range}")
 
 
-def format_period_label(time_range: str, key: str) -> str:
+def format_period_label(time_range: str, key: str, lang: str = "en") -> str:
     """Human-readable label for a stored period key."""
     start, end = period_bounds(time_range, key)
     last = end - timedelta(days=1)
+
+    if lang == "zh":
+        if time_range == "daily":
+            return f"{start.year}年{start.month}月{start.day}日"
+        if time_range == "weekly":
+            if start.year == last.year and start.month == last.month:
+                return f"{start.month}月{start.day}日 – {last.day}日, {last.year} ({key})"
+            if start.year == last.year:
+                return (
+                    f"{start.month}月{start.day}日 – {last.month}月{last.day}日, "
+                    f"{last.year} ({key})"
+                )
+            return (
+                f"{start.year}年{start.month}月{start.day}日 – "
+                f"{last.year}年{last.month}月{last.day}日 ({key})"
+            )
+        if time_range == "monthly":
+            return f"{start.year}年{start.month}月"
+        return key
 
     if time_range == "daily":
         return start.strftime("%b %d, %Y")

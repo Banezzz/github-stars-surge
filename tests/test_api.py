@@ -48,7 +48,7 @@ class PublicApiTests(unittest.TestCase):
     def test_docs_page_and_header_link(self):
         home = self.client.get("/")
         self.assertEqual(home.status_code, 200)
-        self.assertIn('href="/docs"', home.get_data(as_text=True))
+        self.assertIn("/docs?lang=en", home.get_data(as_text=True))
 
         docs = self.client.get("/docs")
         self.assertEqual(docs.status_code, 200)
@@ -59,6 +59,17 @@ class PublicApiTests(unittest.TestCase):
         self.assertIn("/api/v1/search", body)
         self.assertIn("harry0703/MoneyPrinterTurbo", body)
         self.assertNotIn("Wan-Video/Wan2.2", body)
+        self.assertIn("lang-switch", body)
+
+    def test_docs_page_chinese(self):
+        docs = self.client.get("/docs?lang=zh")
+        self.assertEqual(docs.status_code, 200)
+        body = docs.get_data(as_text=True)
+        self.assertIn("公开 API", body)
+        self.assertIn("无需密钥", body)
+        self.assertIn("复制提示词", body)
+        self.assertIn("harry0703/MoneyPrinterTurbo", body)
+        self.assertIn("/api/v1/search", body)
 
     def test_catalog_lists_repo_identity_fields(self):
         response = self.client.get("/api")

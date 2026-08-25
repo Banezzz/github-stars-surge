@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ html_lang }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GitHub Stars Surge</title>
+  <title>{{ t('site_title') }}</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="icon" href="{{ url_for('static', filename='favicon-32.png') }}" type="image/png" sizes="32x32">
@@ -42,8 +42,9 @@
       justify-content: space-between;
       align-items: flex-start;
       gap: 16px;
+      flex-wrap: wrap;
     }
-    .header-actions { display: flex; gap: 8px; flex: none; }
+    .header-actions { display: flex; gap: 8px; flex: none; flex-wrap: wrap; }
     .header-actions a {
       background: var(--chip);
       color: var(--text);
@@ -59,6 +60,10 @@
       background: var(--green-dim);
       border-color: var(--green-dim);
     }
+    .lang-switch { display: flex; gap: 0; }
+    .lang-switch a { border-radius: 0; }
+    .lang-switch a:first-child { border-radius: 8px 0 0 8px; }
+    .lang-switch a:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
     h1 { margin: 0 0 4px; font-size: 22px; display: flex; align-items: center; gap: 10px; }
     .logo { width: 32px; height: 32px; border-radius: 8px; display: block; flex: none; }
     .subtitle { color: var(--muted); margin: 0; font-size: 14px; }
@@ -125,13 +130,10 @@
   <header>
     <div class="wrap header-bar" style="padding-bottom: 0;">
       <div>
-        <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">GitHub Stars Surge</h1>
-        <p class="subtitle">Full daily / weekly / monthly trending boards. NEW means first time on that board.</p>
+        <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">{{ t('site_title') }}</h1>
+        <p class="subtitle">{{ t('report_subtitle') }}</p>
       </div>
-      <nav class="header-actions" aria-label="Site">
-        <a href="/" class="active">Reports</a>
-        <a href="/docs">API</a>
-      </nav>
+      {% include "_header_nav.html" %}
     </div>
   </header>
 
@@ -140,12 +142,12 @@
       <div class="tabs">
         {% for range_name in ranges %}
           <a class="tab {% if range_name == time_range %}active{% endif %}"
-             href="/?range={{ range_name }}">{{ range_labels[range_name] }}</a>
+             href="{{ page_href('/', range=range_name) }}">{{ range_labels[range_name] }}</a>
         {% endfor %}
       </div>
 
       {% if periods %}
-      <a class="nav" {% if prev_period %}href="/?range={{ time_range }}&period={{ prev_period }}"{% else %}aria-disabled="true"{% endif %}>← Older</a>
+      <a class="nav" {% if prev_period %}href="{{ page_href('/', range=time_range, period=prev_period) }}"{% else %}aria-disabled="true"{% endif %}>{{ t('older') }}</a>
       <select name="period" onchange="this.form.submit()">
         {% for item in periods %}
           <option value="{{ item.period_key }}" {% if item.period_key == selected %}selected{% endif %}>
@@ -153,19 +155,20 @@
           </option>
         {% endfor %}
       </select>
-      <a class="nav" {% if next_period %}href="/?range={{ time_range }}&period={{ next_period }}"{% else %}aria-disabled="true"{% endif %}>Newer →</a>
-      <input type="search" id="q" placeholder="Filter name or language" oninput="filterCards()">
+      <a class="nav" {% if next_period %}href="{{ page_href('/', range=time_range, period=next_period) }}"{% else %}aria-disabled="true"{% endif %}>{{ t('newer') }}</a>
+      <input type="search" id="q" placeholder="{{ t('filter_placeholder') }}" oninput="filterCards()">
       {% endif %}
       <input type="hidden" name="range" value="{{ time_range }}">
+      <input type="hidden" name="lang" value="{{ lang }}">
     </form>
 
     {% if report %}
       <p class="meta">
-        {{ report.label }} · {{ report.repos|length }} repos · {{ report.new_count }} new
-        · fetched {{ report.fetched_at }}
+        {{ report.label }} · {{ report.repos|length }} {{ t('meta_repos') }} · {{ report.new_count }} {{ t('meta_new') }}
+        · {{ t('meta_fetched') }} {{ report.fetched_at }}
         {% if report.source == 'discord' %}
-          · <span class="badge">partial archive</span>
-          reconstructed from Discord (only first-seen repos were recorded)
+          · <span class="badge">{{ t('partial_archive') }}</span>
+          {{ t('discord_note') }}
         {% endif %}
       </p>
 
@@ -175,7 +178,7 @@
             <div>
               <span class="rank">#{{ repo.rank }}</span>
               <a class="name" href="{{ repo.url }}" target="_blank" rel="noreferrer">{{ repo.name }}</a>
-              {% if repo.is_new %}<span class="badge">NEW</span>{% endif %}
+              {% if repo.is_new %}<span class="badge">{{ t('badge_new') }}</span>{% endif %}
               {% if repo.description %}<p class="desc">{{ repo.description }}</p>{% endif %}
               <div class="stats">
                 {% if repo.language %}{{ repo.language }} · {% endif %}
@@ -196,8 +199,8 @@
       {% endfor %}
     {% else %}
       <div class="empty">
-        <p>No {{ range_labels[time_range]|lower }} snapshots yet.</p>
-        <p>Collect a report first: <code>.venv/bin/python main.py --now</code></p>
+        <p>{{ t('empty_snapshots', range=range_labels[time_range] if lang == 'zh' else time_range) }}</p>
+        <p>{{ t('empty_hint') }} <code>.venv/bin/python main.py --now</code></p>
       </div>
     {% endif %}
   </main>
