@@ -10,7 +10,7 @@ import i18n
 from period import TIME_RANGES
 
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://ghstar.banez.de").rstrip("/")
-DEFAULT_LIMIT = 200
+DEFAULT_LIMIT = 1000
 MAX_LIMIT = 1000
 
 api_bp = Blueprint("api", __name__)
@@ -146,8 +146,8 @@ def _catalog() -> dict:
             "language": "Exact GitHub language label, e.g. Python",
             "min_stars": "Minimum peak_stars for aggregated repo lists",
             "sort": "peak_stars | appearances | first_seen | last_seen | name",
-            "limit": f"1-{MAX_LIMIT}, default {DEFAULT_LIMIT}",
-            "offset": "Pagination offset, default 0",
+            "limit": f"1-{MAX_LIMIT}, default {DEFAULT_LIMIT}. Use {MAX_LIMIT} for a full page",
+            "offset": "Skip this many rows; repeat until you have collected total items",
             "fields": "Omit for full objects, or card for only name, description, url",
         },
     }

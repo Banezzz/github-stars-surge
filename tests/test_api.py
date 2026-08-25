@@ -71,6 +71,8 @@ class PublicApiTests(unittest.TestCase):
         self.assertIn("harry0703/MoneyPrinterTurbo", body)
         self.assertIn("/api/v1/search", body)
         self.assertIn("请帮我设计一套视频生成 harness", body)
+        self.assertIn("必须拉全量历史", body)
+        self.assertIn("limit=1000", body)
         self.assertIn("我在为 AI 编程 Agent 挑选库", body)
         self.assertNotIn("You are helping me design a video generation harness", body)
         self.assertIn("请帮我设计一套视频生成 harness。", body)

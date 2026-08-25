@@ -74,11 +74,12 @@ Every repository object always includes **name**, **description**, and **url**, 
 ```bash
 curl https://ghstar.banez.de/api
 curl https://ghstar.banez.de/api/v1/overview
-curl https://ghstar.banez.de/api/v1/periods?range=weekly
-curl https://ghstar.banez.de/api/v1/snapshots/weekly
-curl "https://ghstar.banez.de/api/v1/search?q=video+generation&limit=50"
+curl https://ghstar.banez.de/api/v1/periods
+curl "https://ghstar.banez.de/api/v1/search?q=video+generation&limit=1000"
 curl "https://ghstar.banez.de/api/v1/repos?fields=card&limit=1000"
 ```
+
+`GET /api/v1/snapshots/{range}` without a period is only the newest board. For the full history, list `/api/v1/periods` and fetch every `{range}/{period}`. Repo and search lists default to `limit=1000`; if `total` is larger, continue with `offset`.
 
 | Endpoint | Purpose |
 |------|------|

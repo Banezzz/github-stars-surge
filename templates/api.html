@@ -144,8 +144,8 @@
     <div class="card">
       <p><code>{{ base_url }}</code> · {{ t('docs_auth_none') }} · <a href="/api">{{ t('docs_json_catalog') }}</a> · <a href="/api/openapi.json">OpenAPI</a></p>
       <pre><code>curl {{ base_url }}/api/v1/overview
-curl "{{ base_url }}/api/v1/search?q=video+generation&amp;limit=50"
-curl {{ base_url }}/api/v1/snapshots/weekly
+curl "{{ base_url }}/api/v1/periods"
+curl "{{ base_url }}/api/v1/search?q=video+generation&amp;limit=1000"
 curl "{{ base_url }}/api/v1/repos?fields=card&amp;limit=1000"</code></pre>
     </div>
 
@@ -183,18 +183,18 @@ curl "{{ base_url }}/api/v1/repos?fields=card&amp;limit=1000"</code></pre>
     <h3>{{ t('docs_boards') }}</h3>
     <div class="card">
       <p>{{ t('docs_boards_note') }}</p>
-      <pre><code>GET {{ base_url }}/api/v1/periods?range=weekly
-GET {{ base_url }}/api/v1/snapshots/weekly
-GET {{ base_url }}/api/v1/snapshots/weekly/2026-W35
-GET {{ base_url }}/api/v1/snapshots/monthly/2026-08</code></pre>
+      <pre><code>GET {{ base_url }}/api/v1/periods
+GET {{ base_url }}/api/v1/periods?range=weekly
+GET {{ base_url }}/api/v1/snapshots/weekly/{period}
+GET {{ base_url }}/api/v1/snapshots/monthly/{period}</code></pre>
     </div>
 
     <h3>{{ t('docs_search') }}</h3>
     <div class="card">
       <p>{{ t('docs_search_note') }}</p>
-      <pre><code>GET {{ base_url }}/api/v1/repos?limit=200
-GET {{ base_url }}/api/v1/repos?min_stars=5000&amp;sort=peak_stars
-GET {{ base_url }}/api/v1/search?q=video+generation&amp;limit=100
+      <pre><code>GET {{ base_url }}/api/v1/repos?limit=1000
+GET {{ base_url }}/api/v1/repos?limit=1000&amp;offset=0
+GET {{ base_url }}/api/v1/search?q=video+generation&amp;limit=1000
 GET {{ base_url }}/api/v1/repos/harry0703/MoneyPrinterTurbo</code></pre>
     </div>
 

@@ -453,7 +453,7 @@ def list_unique_repos(
     language: str | None = None,
     min_stars: int | None = None,
     sort: str = "peak_stars",
-    limit: int = 200,
+    limit: int = 1000,
     offset: int = 0,
 ) -> dict:
     """Aggregate distinct repos across snapshots, with optional filters."""
