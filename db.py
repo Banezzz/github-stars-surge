@@ -476,10 +476,12 @@ def list_unique_repos(
         where.append(keyword_sql)
         params.extend(keyword_params)
 
-    having = ""
+    having_source = ""
+    having_filtered = ""
     having_params: list = []
     if min_stars is not None:
-        having = "HAVING MAX(r.total_stars) >= ?"
+        having_source = "HAVING MAX(r.total_stars) >= ?"
+        having_filtered = "HAVING MAX(total_stars) >= ?"
         having_params.append(min_stars)
 
     where_sql = " AND ".join(where)
@@ -494,7 +496,7 @@ def list_unique_repos(
                 JOIN snapshots s ON s.id = r.snapshot_id
                 WHERE {where_sql}
                 GROUP BY r.name
-                {having}
+                {having_source}
             )
             """,
             (*params, *having_params),
@@ -539,7 +541,7 @@ def list_unique_repos(
                     GROUP_CONCAT(DISTINCT time_range) AS time_ranges
                 FROM filtered
                 GROUP BY name
-                {having}
+                {having_filtered}
             )
             SELECT
                 r.name,

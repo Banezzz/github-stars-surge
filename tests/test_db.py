@@ -86,6 +86,17 @@ class SnapshotDbTests(unittest.TestCase):
         self.assertFalse(later["owner/repeat"])
         self.assertTrue(later["owner/fresh"])
 
+    def test_unique_repos_min_stars_filters_peak(self):
+        db.save_snapshot(
+            "weekly",
+            [_repo("owner/small", "100"), _repo("owner/big", "9000")],
+            datetime(2026, 8, 15),
+        )
+        result = db.list_unique_repos(min_stars=5000, sort="peak_stars")
+        names = [item["name"] for item in result["items"]]
+        self.assertEqual(names, ["owner/big"])
+        self.assertEqual(result["total"], 1)
+
     def test_unique_repos_search_uses_description(self):
         db.save_snapshot(
             "weekly",

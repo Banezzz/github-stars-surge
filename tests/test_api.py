@@ -91,6 +91,13 @@ class PublicApiTests(unittest.TestCase):
             "Open video generative models",
         )
 
+    def test_repos_min_stars_query(self):
+        response = self.client.get("/api/v1/repos?min_stars=5000&sort=peak_stars")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["total"], 0)
+
     def test_repos_card_projection(self):
         response = self.client.get("/api/v1/repos?fields=card")
         self.assertEqual(response.status_code, 200)
