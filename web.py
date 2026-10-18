@@ -1,10 +1,13 @@
 """Local web viewer for historical trending star reports."""
 
+import os
 from collections import Counter
-from datetime import date as Date
+from datetime import date as Date, datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
-from flask import Flask, render_template, request, send_from_directory
+from flask import Flask, make_response, render_template, request, send_from_directory
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import api
 import db
@@ -60,6 +63,23 @@ LANGUAGE_COLORS = {
 }
 
 
+SCOPE_LABELS = {
+    "c++": "C++",
+    "c#": "C#",
+    "javascript": "JavaScript",
+    "typescript": "TypeScript",
+    "jupyter-notebook": "Jupyter Notebook",
+    "php": "PHP",
+    "html": "HTML",
+    "css": "CSS",
+}
+
+
+def scope_label(slug: str) -> str:
+    """Display name for a GitHub trending language slug."""
+    return SCOPE_LABELS.get(slug) or slug.replace("-", " ").title()
+
+
 def lang_color(name: str) -> str:
     """Linguist color when known, otherwise a stable hue from the name."""
     if name in LANGUAGE_COLORS:
@@ -82,10 +102,17 @@ def compact_number(value) -> str:
 def create_app() -> Flask:
     app = Flask(__name__)
     app.json.sort_keys = False
+    proxies = int(os.getenv("TRUST_PROXY", "0") or 0)
+    if proxies:
+        # Behind nginx/caddy: trust X-Forwarded-* from that many hops.
+        app.wsgi_app = ProxyFix(
+            app.wsgi_app, x_for=proxies, x_proto=proxies, x_host=proxies
+        )
     i18n.register(app)
     api.register(app)
     app.jinja_env.filters["compact"] = compact_number
     app.jinja_env.globals["lang_color"] = lang_color
+    app.jinja_env.globals["scope_label"] = scope_label
     css = Path(app.static_folder) / "app.css"
     asset_version = int(css.stat().st_mtime) if css.exists() else 0
 
@@ -107,14 +134,19 @@ def create_app() -> Flask:
         if time_range not in TIME_RANGES:
             time_range = "weekly"
 
-        periods = db.list_periods(time_range)
+        scopes = [item["scope"] for item in db.list_scopes(time_range)]
+        scope = (request.args.get("scope") or "").strip().lower()
+        if scope not in scopes:
+            scope = db.OVERALL
+
+        periods = db.list_periods(time_range, scope)
         selected = request.args.get("period")
         if selected and not any(item["period_key"] == selected for item in periods):
             selected = None
         if not selected and periods:
             selected = periods[0]["period_key"]
 
-        report = db.get_report(time_range, selected) if selected else None
+        report = db.get_report(time_range, selected, scope) if selected else None
         prev_period, next_period = _neighbors(periods, selected)
         lang = i18n.current_lang()
         periods, report = i18n.localize_period_labels(
@@ -139,6 +171,9 @@ def create_app() -> Flask:
             seen_counts=seen_counts,
             max_gain=max(gains) if gains else 0,
             board_languages=board_languages.most_common(),
+            scope=scope,
+            scopes=scopes,
+            feed_href=f"/feed.xml?range={time_range}" + (f"&scope={scope}" if scope else ""),
             active_nav="reports",
         )
 
@@ -206,6 +241,56 @@ def create_app() -> Flask:
             active_nav="search",
         )
 
+    @app.route("/feed.xml")
+    def feed():
+        lang = i18n.current_lang()
+        time_range = request.args.get("range", "daily")
+        if time_range not in TIME_RANGES:
+            time_range = "daily"
+        scope = (request.args.get("scope") or "").strip().lower()
+        query = (request.args.get("q") or "").strip()[:200]
+        language = request.args.get("language") or None
+        try:
+            limit = max(1, min(int(request.args.get("limit", 50)), 200))
+        except ValueError:
+            limit = 50
+
+        entries = []
+        for item in db.recent_new_repos(time_range, scope):
+            if language and item["language"] != language:
+                continue
+            if query and not db.matches_query(item, query):
+                continue
+            entries.append({**item, "updated": _rfc3339(item["seen_at"])})
+            if len(entries) >= limit:
+                break
+
+        base = api.public_base()
+        params = {
+            key: value
+            for key, value in (("range", time_range), ("scope", scope), ("q", query), ("language", language))
+            if value
+        }
+        title_bits = [i18n.range_labels(lang)[time_range]]
+        if scope:
+            title_bits.append(scope)
+        if language:
+            title_bits.append(language)
+        if query:
+            title_bits.append(f"“{query}”")
+        response = make_response(render_template(
+            "feed.xml",
+            feed_title=f"{t_site(lang)} · NEW · {' · '.join(title_bits)}",
+            self_url=f"{base}/feed.xml" + (f"?{urlencode(params)}" if params else ""),
+            html_url=f"{base}/?range={time_range}" + (f"&scope={scope}" if scope else ""),
+            base_url=base,
+            updated=entries[0]["updated"] if entries else _rfc3339(datetime.now().isoformat()),
+            entries=entries,
+        ))
+        response.headers["Content-Type"] = "application/atom+xml; charset=utf-8"
+        response.headers["Cache-Control"] = "public, max-age=600"
+        return response
+
     @app.route("/repo/<path:name>")
     def repo_detail(name: str):
         lang = i18n.current_lang()
@@ -220,7 +305,7 @@ def create_app() -> Flask:
                 )
             ranks = [item["rank"] for item in repo["history"] if item["rank"]]
             best_rank = min(ranks) if ranks else None
-            chart = _star_chart(repo["history"])
+            chart = _star_chart(repo["history"], repo.get("star_history") or [])
         return render_template(
             "repo.html",
             name=name,
@@ -233,6 +318,21 @@ def create_app() -> Flask:
         ), status
 
     return app
+
+
+def t_site(lang: str) -> str:
+    return i18n.translate(lang, "site_title")
+
+
+def _rfc3339(value: str) -> str:
+    """Stored timestamps are naive local time; Atom wants an explicit offset."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        parsed = datetime.now()
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return parsed.isoformat(timespec="seconds")
 
 
 def _neighbors(periods: list[dict], selected: str | None) -> tuple[str | None, str | None]:
@@ -249,14 +349,20 @@ def _neighbors(periods: list[dict], selected: str | None) -> tuple[str | None, s
     return older, newer
 
 
-def _star_chart(history: list[dict]) -> dict | None:
-    """SVG geometry for total stars over time; None when there is no trend to draw."""
+def _star_chart(history: list[dict], api_series: list[dict] | None = None) -> dict | None:
+    """SVG geometry for total stars over time; None when there is no trend to draw.
+
+    Board snapshots and daily GitHub API counts are merged by date; the API
+    count wins on days that have both.
+    """
     by_date: dict[str, int] = {}
     for item in history:
         if item["total_stars"] is None:
             continue
         date = (item["fetched_at"] or item["period_key"])[:10]
         by_date[date] = max(by_date.get(date, 0), item["total_stars"])
+    for item in api_series or []:
+        by_date[item["date"]] = item["stars"]
     if len(by_date) < 2:
         return None
 
@@ -304,11 +410,19 @@ def _star_chart(history: list[dict]) -> dict | None:
         "y_ticks": y_ticks,
         "x_first": dates[0],
         "x_last": dates[-1],
+        "has_api": bool(api_series),
     }
 
 
 def run_web(host: str = "0.0.0.0", port: int = 8765) -> None:
+    """Serve with waitress when installed; Flask's dev server is the fallback."""
     db.init_db()
     app = create_app()
     print(f"History viewer: http://127.0.0.1:{port}")
-    app.run(host=host, port=port, debug=False)
+    try:
+        from waitress import serve
+    except ImportError:
+        print("waitress is not installed; using Flask's development server.")
+        app.run(host=host, port=port, debug=False)
+        return
+    serve(app, host=host, port=port, threads=8)

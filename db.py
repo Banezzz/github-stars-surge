@@ -53,8 +53,11 @@ def get_conn():
         conn.close()
 
 
+OVERALL = ""  # scope of the main board; language boards use GitHub's slug
+
+
 def init_db() -> None:
-    """Create snapshot tables if they do not exist."""
+    """Create tables and migrate older databases in place."""
     with get_conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS snapshots (
@@ -63,10 +66,13 @@ def init_db() -> None:
                 period_key TEXT NOT NULL,
                 fetched_at TEXT NOT NULL,
                 source TEXT NOT NULL DEFAULT 'scrape',
-                UNIQUE(time_range, period_key)
+                scope TEXT NOT NULL DEFAULT '',
+                UNIQUE(time_range, period_key, scope)
             )
         """)
         _ensure_schema(conn)
+    _migrate_snapshot_scope()
+    with get_conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS snapshot_repos (
                 id INTEGER PRIMARY KEY,
@@ -81,12 +87,58 @@ def init_db() -> None:
                 stars_period_label TEXT,
                 url TEXT,
                 is_new INTEGER DEFAULT 0,
+                best_rank INTEGER,
+                seen_count INTEGER NOT NULL DEFAULT 1,
+                in_latest INTEGER NOT NULL DEFAULT 1,
                 FOREIGN KEY(snapshot_id) REFERENCES snapshots(id)
             )
         """)
+        _ensure_repo_columns(conn)
+        # Every scrape, verbatim. Snapshots are derived from these.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scrape_runs (
+                id INTEGER PRIMARY KEY,
+                time_range TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT '',
+                period_key TEXT NOT NULL,
+                fetched_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scrape_run_repos (
+                run_id INTEGER NOT NULL,
+                rank INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                language TEXT,
+                total_stars INTEGER,
+                forks INTEGER,
+                stars_period INTEGER,
+                stars_period_label TEXT,
+                FOREIGN KEY(run_id) REFERENCES scrape_runs(id)
+            )
+        """)
+        # Daily star counts from the GitHub API, independent of trending.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS repo_stars (
+                name TEXT NOT NULL,
+                observed_on TEXT NOT NULL,
+                stars INTEGER NOT NULL,
+                forks INTEGER,
+                PRIMARY KEY(name, observed_on)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS repo_refresh (
+                name TEXT PRIMARY KEY,
+                checked_at TEXT NOT NULL,
+                status TEXT NOT NULL
+            )
+        """)
+        conn.execute("DROP INDEX IF EXISTS idx_snapshots_range_period")
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_snapshots_range_period "
-            "ON snapshots(time_range, period_key)"
+            "CREATE INDEX IF NOT EXISTS idx_snapshots_range_scope_period "
+            "ON snapshots(time_range, scope, period_key)"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_repos_snapshot "
@@ -95,6 +147,14 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_repos_name_lookup "
             "ON snapshot_repos(name)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scrape_run_repos_run "
+            "ON scrape_run_repos(run_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scrape_runs_board "
+            "ON scrape_runs(time_range, scope, period_key)"
         )
         for leftover in (
             "repos",
@@ -118,27 +178,97 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
 
 
-def _is_new(conn: sqlite3.Connection, time_range: str, name: str, current_key: str) -> bool:
+def _ensure_repo_columns(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(snapshot_repos)")}
+    for name, ddl in (
+        ("best_rank", "best_rank INTEGER"),
+        ("seen_count", "seen_count INTEGER NOT NULL DEFAULT 1"),
+        ("in_latest", "in_latest INTEGER NOT NULL DEFAULT 1"),
+    ):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE snapshot_repos ADD COLUMN {ddl}")
+    conn.execute("UPDATE snapshot_repos SET best_rank = rank WHERE best_rank IS NULL")
+
+
+def _migrate_snapshot_scope() -> None:
+    """Rebuild snapshots with a scope column; SQLite cannot alter a UNIQUE constraint."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(snapshots)")}
+        if "scope" in columns:
+            return
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute("""
+                CREATE TABLE snapshots_new (
+                    id INTEGER PRIMARY KEY,
+                    time_range TEXT NOT NULL,
+                    period_key TEXT NOT NULL,
+                    fetched_at TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'scrape',
+                    scope TEXT NOT NULL DEFAULT '',
+                    UNIQUE(time_range, period_key, scope)
+                )
+            """)
+            conn.execute("""
+                INSERT INTO snapshots_new (id, time_range, period_key, fetched_at, source, scope)
+                SELECT id, time_range, period_key, fetched_at, source, '' FROM snapshots
+            """)
+            conn.execute("DROP TABLE snapshots")
+            conn.execute("ALTER TABLE snapshots_new RENAME TO snapshots")
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+
+
+def _is_new(
+    conn: sqlite3.Connection,
+    time_range: str,
+    scope: str,
+    name: str,
+    current_key: str,
+) -> bool:
     row = conn.execute(
         """
         SELECT 1
         FROM snapshot_repos r
         JOIN snapshots s ON s.id = r.snapshot_id
-        WHERE s.time_range = ? AND r.name = ? AND s.period_key < ?
+        WHERE s.time_range = ? AND s.scope = ? AND r.name = ? AND s.period_key < ?
         LIMIT 1
         """,
-        (time_range, name, current_key),
+        (time_range, scope, name, current_key),
     ).fetchone()
     return row is None
+
+
+def _scraped_item(repo: dict) -> dict:
+    return {
+        "name": repo["name"],
+        "description": repo.get("description") or "",
+        "language": repo.get("language") or "",
+        "total_stars": parse_count(str(repo.get("total_stars") or "")),
+        "forks": parse_count(str(repo.get("forks") or "")),
+        "stars_period": parse_count(str(repo.get("stars_today") or "")),
+        "stars_period_label": repo.get("stars_today") or "",
+        "url": repo.get("url") or "",
+    }
 
 
 def save_snapshot(
     time_range: str,
     repos: list[dict],
     when: datetime | None = None,
+    scope: str = OVERALL,
 ) -> dict:
-    """Upsert a period snapshot and return the stored report.
+    """Log a scrape and merge it into its period's snapshot.
 
+    Repeated scrapes in one week or month accumulate: repos on the latest
+    scrape come first in its order, then repos that were on the board
+    earlier in the period but have since dropped off (``in_latest`` False).
     Empty repo lists are refused so a failed scrape cannot wipe a good snapshot.
     """
     if not repos:
@@ -147,51 +277,109 @@ def save_snapshot(
     when = when or datetime.now()
     key = period_key(time_range, when)
     fetched_at = when.isoformat(timespec="seconds")
+    scraped = [_scraped_item(repo) for repo in repos]
 
     with get_conn() as conn:
+        run_id = conn.execute(
+            """
+            INSERT INTO scrape_runs (time_range, scope, period_key, fetched_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (time_range, scope, key, fetched_at),
+        ).lastrowid
+        conn.executemany(
+            """
+            INSERT INTO scrape_run_repos (
+                run_id, rank, name, description, language,
+                total_stars, forks, stars_period, stars_period_label
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    run_id, rank, item["name"], item["description"], item["language"],
+                    item["total_stars"], item["forks"], item["stars_period"],
+                    item["stars_period_label"],
+                )
+                for rank, item in enumerate(scraped, start=1)
+            ],
+        )
+
         existing = conn.execute(
-            "SELECT id FROM snapshots WHERE time_range = ? AND period_key = ?",
-            (time_range, key),
+            """
+            SELECT id FROM snapshots
+            WHERE time_range = ? AND period_key = ? AND scope = ?
+            """,
+            (time_range, key, scope),
         ).fetchone()
 
+        previous: dict[str, sqlite3.Row] = {}
         if existing:
             snapshot_id = existing["id"]
+            for row in conn.execute(
+                "SELECT * FROM snapshot_repos WHERE snapshot_id = ? ORDER BY rank",
+                (snapshot_id,),
+            ):
+                previous.setdefault(row["name"], row)
             conn.execute("DELETE FROM snapshot_repos WHERE snapshot_id = ?", (snapshot_id,))
             conn.execute(
                 "UPDATE snapshots SET fetched_at = ?, source = 'scrape' WHERE id = ?",
                 (fetched_at, snapshot_id),
             )
         else:
-            cursor = conn.execute(
+            snapshot_id = conn.execute(
                 """
-                INSERT INTO snapshots (time_range, period_key, fetched_at, source)
-                VALUES (?, ?, ?, 'scrape')
+                INSERT INTO snapshots (time_range, period_key, fetched_at, source, scope)
+                VALUES (?, ?, ?, 'scrape', ?)
                 """,
-                (time_range, key, fetched_at),
-            )
-            snapshot_id = cursor.lastrowid
+                (time_range, key, fetched_at, scope),
+            ).lastrowid
+
+        merged = []
+        latest_names = set()
+        for rank, item in enumerate(scraped, start=1):
+            if item["name"] in latest_names:
+                continue
+            latest_names.add(item["name"])
+            prev = previous.get(item["name"])
+            merged.append({
+                **item,
+                "best_rank": min(rank, prev["best_rank"] or prev["rank"]) if prev else rank,
+                "seen_count": (prev["seen_count"] or 1) + 1 if prev else 1,
+                "in_latest": True,
+                "first_in_period": prev is None,
+            })
+        for name, prev in previous.items():
+            if name in latest_names:
+                continue
+            merged.append({
+                "name": name,
+                "description": prev["description"] or "",
+                "language": prev["language"] or "",
+                "total_stars": prev["total_stars"],
+                "forks": prev["forks"],
+                "stars_period": prev["stars_period"],
+                "stars_period_label": prev["stars_period_label"] or "",
+                "url": prev["url"] or "",
+                "best_rank": prev["best_rank"] or prev["rank"],
+                "seen_count": prev["seen_count"] or 1,
+                "in_latest": False,
+                "first_in_period": False,
+            })
 
         stored = []
-        for rank, repo in enumerate(repos, start=1):
-            is_new = _is_new(conn, time_range, repo["name"], key)
+        for rank, item in enumerate(merged, start=1):
             item = {
                 "rank": rank,
-                "name": repo["name"],
-                "description": repo.get("description") or "",
-                "language": repo.get("language") or "",
-                "total_stars": parse_count(str(repo.get("total_stars") or "")),
-                "forks": parse_count(str(repo.get("forks") or "")),
-                "stars_period": parse_count(str(repo.get("stars_today") or "")),
-                "stars_period_label": repo.get("stars_today") or "",
-                "url": repo.get("url") or "",
-                "is_new": is_new,
+                **item,
+                "is_new": _is_new(conn, time_range, scope, item["name"], key),
             }
             conn.execute(
                 """
                 INSERT INTO snapshot_repos (
                     snapshot_id, rank, name, description, language,
-                    total_stars, forks, stars_period, stars_period_label, url, is_new
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    total_stars, forks, stars_period, stars_period_label, url, is_new,
+                    best_rank, seen_count, in_latest
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     snapshot_id,
@@ -205,6 +393,9 @@ def save_snapshot(
                     item["stars_period_label"],
                     item["url"],
                     1 if item["is_new"] else 0,
+                    item["best_rank"],
+                    item["seen_count"],
+                    1 if item["in_latest"] else 0,
                 ),
             )
             stored.append(item)
@@ -212,6 +403,7 @@ def save_snapshot(
     return {
         "id": snapshot_id,
         "time_range": time_range,
+        "scope": scope,
         "period_key": key,
         "label": format_period_label(time_range, key),
         "fetched_at": fetched_at,
@@ -220,7 +412,28 @@ def save_snapshot(
     }
 
 
-def list_periods(time_range: str) -> list[dict]:
+def list_scopes(time_range: str | None = None) -> list[dict]:
+    """Language boards that have at least one stored snapshot."""
+    params: list = []
+    range_sql = ""
+    if time_range:
+        range_sql = "AND time_range = ?"
+        params.append(time_range)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT scope, COUNT(*) AS snapshots, MAX(period_key) AS last_period
+            FROM snapshots
+            WHERE scope != '' {range_sql}
+            GROUP BY scope
+            ORDER BY scope
+            """,
+            params,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_periods(time_range: str, scope: str = OVERALL) -> list[dict]:
     """List stored periods for a time range, newest first."""
     with get_conn() as conn:
         rows = conn.execute(
@@ -233,11 +446,11 @@ def list_periods(time_range: str) -> list[dict]:
                 COALESCE(SUM(r.is_new), 0) AS new_count
             FROM snapshots s
             LEFT JOIN snapshot_repos r ON r.snapshot_id = s.id
-            WHERE s.time_range = ?
+            WHERE s.time_range = ? AND s.scope = ?
             GROUP BY s.id
             ORDER BY s.period_key DESC
             """,
-            (time_range,),
+            (time_range, scope),
         ).fetchall()
 
     return [
@@ -253,23 +466,30 @@ def list_periods(time_range: str) -> list[dict]:
     ]
 
 
-def get_report(time_range: str, period: str | None = None) -> dict | None:
+def get_report(
+    time_range: str,
+    period: str | None = None,
+    scope: str = OVERALL,
+) -> dict | None:
     """Load one snapshot. Defaults to the newest period for the range."""
     with get_conn() as conn:
         if period:
             snapshot = conn.execute(
-                "SELECT * FROM snapshots WHERE time_range = ? AND period_key = ?",
-                (time_range, period),
+                """
+                SELECT * FROM snapshots
+                WHERE time_range = ? AND period_key = ? AND scope = ?
+                """,
+                (time_range, period, scope),
             ).fetchone()
         else:
             snapshot = conn.execute(
                 """
                 SELECT * FROM snapshots
-                WHERE time_range = ?
+                WHERE time_range = ? AND scope = ?
                 ORDER BY period_key DESC
                 LIMIT 1
                 """,
-                (time_range,),
+                (time_range, scope),
             ).fetchone()
 
         if not snapshot:
@@ -283,6 +503,13 @@ def get_report(time_range: str, period: str | None = None) -> dict | None:
             """,
             (snapshot["id"],),
         ).fetchall()
+        scrape_count = conn.execute(
+            """
+            SELECT COUNT(*) FROM scrape_runs
+            WHERE time_range = ? AND scope = ? AND period_key = ?
+            """,
+            (snapshot["time_range"], snapshot["scope"], snapshot["period_key"]),
+        ).fetchone()[0]
 
     repos = [
         repo_card(
@@ -298,40 +525,43 @@ def get_report(time_range: str, period: str | None = None) -> dict | None:
             stars_period=row["stars_period"],
             stars_period_label=row["stars_period_label"] or "",
             is_new=bool(row["is_new"]),
+            best_rank=row["best_rank"] or row["rank"],
+            seen_count=row["seen_count"] or 1,
+            in_latest=bool(row["in_latest"]),
         )
         for row in rows
     ]
     return {
         "id": snapshot["id"],
         "time_range": snapshot["time_range"],
+        "scope": snapshot["scope"],
         "period_key": snapshot["period_key"],
         "label": format_period_label(snapshot["time_range"], snapshot["period_key"]),
         "fetched_at": snapshot["fetched_at"],
         "source": snapshot["source"] if "source" in snapshot.keys() else "scrape",
+        "scrape_count": scrape_count,
         "repos": repos,
         "new_count": sum(1 for repo in repos if repo["is_new"]),
+        "dropped_count": sum(1 for repo in repos if not repo["in_latest"]),
     }
 
 
 def recompute_is_new() -> dict[str, int]:
-    """Mark NEW only on a repo's first appearance in that daily/weekly/monthly board."""
+    """Mark NEW only on a repo's first appearance on each board (range + scope)."""
     updated = 0
     with get_conn() as conn:
-        ranges = [
-            row[0]
-            for row in conn.execute(
-                "SELECT DISTINCT time_range FROM snapshots ORDER BY time_range"
-            )
-        ]
-        for time_range in ranges:
+        boards = conn.execute(
+            "SELECT DISTINCT time_range, scope FROM snapshots ORDER BY time_range, scope"
+        ).fetchall()
+        for board in boards:
             snapshots = conn.execute(
                 """
                 SELECT id, period_key
                 FROM snapshots
-                WHERE time_range = ?
+                WHERE time_range = ? AND scope = ?
                 ORDER BY period_key
                 """,
-                (time_range,),
+                (board["time_range"], board["scope"]),
             ).fetchall()
             seen: set[str] = set()
             for snapshot in snapshots:
@@ -355,11 +585,19 @@ def recompute_is_new() -> dict[str, int]:
     return {"repos": updated}
 
 
-def set_snapshot_source(time_range: str, period_key: str, source: str) -> None:
+def set_snapshot_source(
+    time_range: str,
+    period_key: str,
+    source: str,
+    scope: str = OVERALL,
+) -> None:
     with get_conn() as conn:
         conn.execute(
-            "UPDATE snapshots SET source = ? WHERE time_range = ? AND period_key = ?",
-            (source, time_range, period_key),
+            """
+            UPDATE snapshots SET source = ?
+            WHERE time_range = ? AND period_key = ? AND scope = ?
+            """,
+            (source, time_range, period_key, scope),
         )
 
 
@@ -390,7 +628,7 @@ def overview() -> dict:
                     MIN(period_key) AS first_period,
                     MAX(period_key) AS last_period
                 FROM snapshots
-                WHERE time_range = ?
+                WHERE time_range = ? AND scope = ''
                 """,
                 (time_range,),
             ).fetchone()
@@ -415,6 +653,7 @@ def overview() -> dict:
         "unique_repos": unique_repos,
         "snapshot_rows": snapshot_rows,
         "ranges": ranges,
+        "scopes": list_scopes(),
         "languages": [
             {"name": row["language"], "repo_count": row["repo_count"]}
             for row in languages
@@ -422,13 +661,13 @@ def overview() -> dict:
     }
 
 
-def list_all_periods(time_range: str | None = None) -> list[dict]:
-    """List stored periods, optionally limited to one time range."""
+def list_all_periods(time_range: str | None = None, scope: str = OVERALL) -> list[dict]:
+    """List stored periods for one board scope, optionally one time range."""
     ranges = (time_range,) if time_range else TIME_RANGES
     items = []
     for current in ranges:
-        for item in list_periods(current):
-            items.append({**item, "time_range": current})
+        for item in list_periods(current, scope):
+            items.append({**item, "time_range": current, "scope": scope})
     return items
 
 
@@ -457,8 +696,12 @@ def list_unique_repos(
     sort: str = "peak_stars",
     limit: int = 1000,
     offset: int = 0,
+    scope: str | None = None,
 ) -> dict:
-    """Aggregate distinct repos across snapshots, with optional filters."""
+    """Aggregate distinct repos across snapshots, with optional filters.
+
+    ``scope=None`` covers the overall boards and every language board.
+    """
     if sort not in REPO_SORTS:
         raise ValueError(f"unknown sort: {sort}")
 
@@ -470,6 +713,9 @@ def list_unique_repos(
     if period:
         where.append("s.period_key = ?")
         params.append(period)
+    if scope is not None:
+        where.append("s.scope = ?")
+        params.append(scope)
     if language:
         where.append("r.language = ?")
         params.append(language)
@@ -613,7 +859,10 @@ def get_repo_history(name: str) -> dict | None:
                 r.stars_period,
                 r.stars_period_label,
                 r.is_new,
+                r.best_rank,
+                r.in_latest,
                 s.time_range,
+                s.scope,
                 s.period_key,
                 s.fetched_at,
                 COALESCE(s.source, 'scrape') AS source
@@ -636,11 +885,14 @@ def get_repo_history(name: str) -> dict | None:
     for row in rows:
         appearances.append({
             "time_range": row["time_range"],
+            "scope": row["scope"],
             "period_key": row["period_key"],
             "label": format_period_label(row["time_range"], row["period_key"]),
             "fetched_at": row["fetched_at"],
             "source": row["source"],
             "rank": row["rank"],
+            "best_rank": row["best_rank"] or row["rank"],
+            "in_latest": bool(row["in_latest"]),
             "total_stars": row["total_stars"],
             "forks": row["forks"],
             "stars_period": row["stars_period"],
@@ -684,7 +936,9 @@ def get_repo_history(name: str) -> dict | None:
         first_seen_at=earliest["fetched_at"],
         last_seen_at=latest["fetched_at"],
         time_ranges=ranges,
+        scopes=sorted({row["scope"] for row in rows if row["scope"]}),
         history=appearances,
+        star_history=get_star_series(latest["name"]),
     )
 
 
@@ -828,6 +1082,7 @@ def search_repos(
     sort: str = "relevance",
     limit: int = 1000,
     offset: int = 0,
+    scope: str | None = None,
 ) -> dict:
     """Relevance-ranked search over every unique repo in the history.
 
@@ -847,6 +1102,7 @@ def search_repos(
         period=period,
         language=language,
         min_stars=min_stars,
+        scope=scope,
     )
     scored = []
     for item, features in candidates:
@@ -929,3 +1185,133 @@ def appearance_counts(names: list[str], time_range: str | None = None) -> dict[s
             params,
         ).fetchall()
     return {row["name"]: row["n"] for row in rows}
+
+
+def matches_query(item: dict, query: str) -> bool:
+    """True when a repo dict would be returned by search_repos for this query."""
+    tokens = [token for token in (_compact(part) for part in query.split()) if token]
+    return bool(tokens) and _relevance(_search_features(item), query, tokens) > 0
+
+
+def recent_new_repos(
+    time_range: str,
+    scope: str = OVERALL,
+    snapshots: int = 14,
+) -> list[dict]:
+    """NEW repos from the newest snapshots of one board, newest first (for feeds).
+
+    A repo counts once, on the scrape that first put it in that period.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                r.name, r.description, r.language, r.url, r.total_stars,
+                r.stars_period, r.stars_period_label, r.best_rank,
+                s.time_range, s.scope, s.period_key, s.fetched_at,
+                (
+                    SELECT MIN(sr.fetched_at)
+                    FROM scrape_runs sr
+                    JOIN scrape_run_repos srr ON srr.run_id = sr.id
+                    WHERE sr.time_range = s.time_range AND sr.scope = s.scope
+                      AND sr.period_key = s.period_key AND srr.name = r.name
+                ) AS first_scraped_at
+            FROM snapshot_repos r
+            JOIN snapshots s ON s.id = r.snapshot_id
+            WHERE s.id IN (
+                SELECT id FROM snapshots
+                WHERE time_range = ? AND scope = ?
+                ORDER BY period_key DESC
+                LIMIT ?
+            )
+            AND r.is_new = 1
+            ORDER BY COALESCE(first_scraped_at, s.fetched_at) DESC, r.best_rank ASC
+            """,
+            (time_range, scope, snapshots),
+        ).fetchall()
+    items = []
+    for row in rows:
+        items.append(repo_card(
+            {
+                "name": row["name"],
+                "description": row["description"] or "",
+                "url": row["url"] or "",
+            },
+            language=row["language"] or "",
+            total_stars=row["total_stars"],
+            stars_period=row["stars_period"],
+            stars_period_label=row["stars_period_label"] or "",
+            best_rank=row["best_rank"],
+            time_range=row["time_range"],
+            scope=row["scope"],
+            period_key=row["period_key"],
+            label=format_period_label(row["time_range"], row["period_key"]),
+            seen_at=row["first_scraped_at"] or row["fetched_at"],
+        ))
+    return items
+
+
+def record_stars(name: str, observed_on: str, stars: int, forks: int | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO repo_stars (name, observed_on, stars, forks)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(name, observed_on) DO UPDATE SET
+                stars = excluded.stars, forks = excluded.forks
+            """,
+            (name, observed_on, stars, forks),
+        )
+
+
+def mark_refreshed(name: str, checked_at: str, status: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO repo_refresh (name, checked_at, status) VALUES (?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                checked_at = excluded.checked_at, status = excluded.status
+            """,
+            (name, checked_at, status),
+        )
+
+
+def repos_to_refresh(since: str, limit: int, checked_before: str) -> list[str]:
+    """Repos seen on a board since ``since``, least recently refreshed first.
+
+    Repos already checked at or after ``checked_before`` are skipped, and
+    repos GitHub reported missing are retried only after that window too.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT r.name, MAX(s.fetched_at) AS last_seen, f.checked_at
+            FROM snapshot_repos r
+            JOIN snapshots s ON s.id = r.snapshot_id
+            LEFT JOIN repo_refresh f ON f.name = r.name
+            WHERE s.fetched_at >= ?
+            GROUP BY r.name
+            HAVING f.checked_at IS NULL OR f.checked_at < ?
+            ORDER BY f.checked_at IS NOT NULL, f.checked_at ASC, last_seen DESC
+            LIMIT ?
+            """,
+            (since, checked_before, limit),
+        ).fetchall()
+    return [row["name"] for row in rows]
+
+
+def get_star_series(name: str) -> list[dict]:
+    """Daily GitHub API star counts for one repo, oldest first."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT observed_on, stars, forks FROM repo_stars
+            WHERE name = ? COLLATE NOCASE
+            ORDER BY observed_on
+            """,
+            (name,),
+        ).fetchall()
+    return [
+        {"date": row["observed_on"], "stars": row["stars"], "forks": row["forks"]}
+        for row in rows
+    ]

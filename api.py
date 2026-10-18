@@ -93,6 +93,18 @@ def _optional_range() -> str | None | tuple:
     return time_range
 
 
+def _board_scope() -> str:
+    """Language board slug; empty means the main (all languages) board."""
+    return (request.args.get("scope") or "").strip().lower()
+
+
+def _filter_scope() -> str | None:
+    """For aggregates: omitted covers every board, scope= (empty) the main board only."""
+    if "scope" not in request.args:
+        return None
+    return _board_scope()
+
+
 def _failed(result) -> bool:
     return isinstance(result, tuple)
 
@@ -138,6 +150,7 @@ def _catalog() -> dict:
             {"method": "GET", "path": "/api/v1/repos/{owner}/{repo}", "description": "One repo plus appearance history"},
             {"method": "GET", "path": "/api/v1/search", "description": "Relevance-ranked search across name, acronym, description, language"},
             {"method": "GET", "path": "/api/v1/prompts", "description": "Ready-to-paste agent prompts"},
+            {"method": "GET", "path": "/feed.xml", "description": "Atom feed of NEW repos (range, scope, q, language)"},
         ],
         "query_parameters": {
             "range": "daily | weekly | monthly",
@@ -149,6 +162,10 @@ def _catalog() -> dict:
             "limit": f"1-{MAX_LIMIT}, default {DEFAULT_LIMIT}. Use {MAX_LIMIT} for a full page",
             "offset": "Skip this many rows; repeat until you have collected total items",
             "fields": "Omit for full objects, or card for only name, description, url",
+            "scope": (
+                "Language board slug such as python or c++ (see overview.scopes). "
+                "Boards default to the main board; repos/search default to every board"
+            ),
         },
     }
 
@@ -173,6 +190,7 @@ def _openapi() -> dict:
             "/api/v1/repos/{name}": {"get": {"summary": "Repository history"}},
             "/api/v1/search": {"get": {"summary": "Keyword search"}},
             "/api/v1/prompts": {"get": {"summary": "Example agent prompts"}},
+            "/feed.xml": {"get": {"summary": "Atom feed of NEW repos"}},
         },
     }
 
@@ -199,7 +217,8 @@ def api_periods():
     time_range = _optional_range()
     if _failed(time_range):
         return time_range
-    return _ok(range=time_range, data=db.list_all_periods(time_range))
+    scope = _board_scope()
+    return _ok(range=time_range, scope=scope, data=db.list_all_periods(time_range, scope))
 
 
 @api_bp.route("/api/v1/snapshots/<time_range>", defaults={"period": None})
@@ -207,10 +226,12 @@ def api_periods():
 def api_snapshot(time_range: str, period: str | None):
     if time_range not in TIME_RANGES:
         return _error(f"unknown range '{time_range}'. Use {', '.join(TIME_RANGES)}.")
-    report = db.get_report(time_range, period)
+    scope = _board_scope()
+    report = db.get_report(time_range, period, scope)
     if not report:
         label = period or "latest"
-        return _error(f"no snapshot for {time_range}/{label}", 404)
+        board = f"{time_range}[{scope}]" if scope else time_range
+        return _error(f"no snapshot for {board}/{label}", 404)
     if _wants_card():
         report = {**report, "repos": db.as_repo_cards(report["repos"])}
     return _ok(data=report)
@@ -245,6 +266,7 @@ def api_repos():
             sort=sort,
             limit=limit,
             offset=offset,
+            scope=_filter_scope(),
         )
     except ValueError as exc:
         return _error(str(exc))
@@ -300,6 +322,7 @@ def api_search():
         sort=sort,
         limit=limit,
         offset=offset,
+        scope=_filter_scope(),
     )
     return _ok(
         q=query,
@@ -337,6 +360,7 @@ def docs_page():
         "limit",
         "offset",
         "fields",
+        "scope",
     )
     parameters = [
         (

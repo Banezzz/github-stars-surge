@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>{{ feed_title }}</title>
+  <subtitle>{{ t('feed_subtitle') }}</subtitle>
+  <id>{{ self_url }}</id>
+  <link rel="self" type="application/atom+xml" href="{{ self_url }}"/>
+  <link rel="alternate" type="text/html" href="{{ html_url }}"/>
+  <updated>{{ updated }}</updated>
+  <generator>GitHub Stars Surge</generator>
+  {%- for item in entries %}
+  <entry>
+    <title>{{ item.name }}{% if item.language %} ({{ item.language }}){% endif %}</title>
+    <id>tag:ghstar,{{ item.time_range }}:{{ item.scope or 'all' }}:{{ item.period_key }}:{{ item.name }}</id>
+    <link rel="alternate" type="text/html" href="{{ item.url }}"/>
+    <link rel="related" type="text/html" href="{{ base_url }}/repo/{{ item.name }}"/>
+    <updated>{{ item.updated }}</updated>
+    <author><name>{{ item.name.partition('/')[0] }}</name></author>
+    <category term="{{ item.time_range }}"/>
+    {%- if item.scope %}<category term="{{ item.scope }}"/>{% endif %}
+    <summary type="text">{{ item.description }}{% if item.total_stars is not none %} · ★ {{ "{:,}".format(item.total_stars) }}{% endif %}{% if item.stars_period_label %} · {{ item.stars_period_label }}{% endif %} · {{ item.label }}</summary>
+  </entry>
+  {%- endfor %}
+</feed>

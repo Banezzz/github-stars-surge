@@ -17,8 +17,9 @@ import schedule
 from dotenv import load_dotenv
 
 import db
+import stars
 from period import TIME_RANGE_LABELS, TIME_RANGES
-from scraper import fetch_trending_repos
+from scraper import ScrapeError, fetch_trending_repos  # noqa: F401  (re-exported for tests)
 from web import run_web
 
 load_dotenv()
@@ -30,6 +31,18 @@ SCHEDULE_TIME = os.getenv("SCHEDULE_TIME", "09:00")
 WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.getenv("WEB_PORT", "8765"))
 DISCORD_DESCRIPTION_LIMIT = 4000
+# GitHub trending language slugs scraped as extra boards. Set to "" for the overall board only.
+DEFAULT_LANGUAGES = "python,typescript,javascript,go,rust,java,c++,jupyter-notebook"
+TRENDING_LANGUAGES = [
+    slug.strip().lower()
+    for slug in os.getenv("TRENDING_LANGUAGES", DEFAULT_LANGUAGES).split(",")
+    if slug.strip()
+]
+REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", "1.5"))
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or None
+STAR_REFRESH = os.getenv("STAR_REFRESH", "1") not in ("0", "false", "no", "")
+STAR_REFRESH_DAYS = int(os.getenv("STAR_REFRESH_DAYS", "90"))
+STAR_REFRESH_LIMIT = int(os.getenv("STAR_REFRESH_LIMIT", "0")) or None
 
 db.configure(DB_PATH)
 
@@ -57,8 +70,14 @@ def send_discord_message(content: str = None, embeds: list = None):
 
 
 def format_repos_embed(snapshot: dict) -> dict | None:
-    """Format NEW repos from a stored snapshot as a Discord embed."""
-    new_repos = [repo for repo in snapshot["repos"] if repo["is_new"]]
+    """Format NEW repos from a stored snapshot as a Discord embed.
+
+    Repos already seen earlier in the same week or month were announced then.
+    """
+    new_repos = [
+        repo for repo in snapshot["repos"]
+        if repo["is_new"] and repo.get("first_in_period", True)
+    ]
     if not new_repos:
         return None
 
@@ -99,23 +118,31 @@ def format_repos_embed(snapshot: dict) -> dict | None:
     }
 
 
-def process_time_range(time_range: str) -> dict | None:
-    """Fetch, store, and optionally notify one time range. Skip empty scrapes."""
-    time_label = TIME_RANGE_LABELS[time_range].lower()
-    print(f"\n--- Fetching {time_range} trending ---")
-    print(f"Fetching trending repositories ({time_label})...")
+def process_time_range(time_range: str, language: str = "") -> dict | None:
+    """Fetch, store, and optionally notify one board. Skip empty scrapes.
 
-    repos = fetch_trending_repos(GITHUB_BASE, time_range)
+    Raises on fetch or parse failures so the caller can alert.
+    """
+    board = f"{time_range}/{language}" if language else time_range
+    print(f"\n--- Fetching {board} trending ---")
+
+    repos = fetch_trending_repos(GITHUB_BASE, time_range, language)
     print(f"  Found {len(repos)} trending repos")
     if not repos:
         print("  Empty result, not overwriting an existing snapshot")
         return None
 
-    snapshot = db.save_snapshot(time_range, repos)
+    snapshot = db.save_snapshot(time_range, repos, scope=language)
+    dropped = sum(1 for repo in snapshot["repos"] if not repo["in_latest"])
     print(
         f"  Saved {snapshot['period_key']}: "
         f"{snapshot['new_count']} new / {len(snapshot['repos'])} total"
+        + (f" ({dropped} kept from earlier scrapes)" if dropped else "")
     )
+
+    if language:
+        # Language boards feed search and history; only the main board posts to Discord.
+        return snapshot
 
     repos_embed = format_repos_embed(snapshot)
     if not repos_embed:
@@ -130,21 +157,58 @@ def process_time_range(time_range: str) -> dict | None:
     return snapshot
 
 
-def job():
-    """Fetch trending lists, store snapshots, and optionally notify Discord."""
+def send_failure_alert(failures: list[tuple[str, str]]) -> None:
+    """Tell Discord that some boards failed, so a markup change is not silent."""
+    if not failures or not DISCORD_WEBHOOK:
+        return
+    lines = "\n".join(f"- `{board}`: {error[:300]}" for board, error in failures[:20])
+    content = f"⚠️ GitHub Stars Surge: {len(failures)} trending board(s) failed\n{lines}"
+    try:
+        send_discord_message(content=content[:1900])
+    except requests.RequestException as exc:
+        print(f"  Failure alert could not be sent: {exc}")
+
+
+def job() -> list[tuple[str, str]]:
+    """Fetch every board, store snapshots, refresh stars, alert on failures.
+
+    Returns the boards that failed as (board, error) pairs.
+    """
     print(f"\n[{datetime.now()}] Starting job...")
     db.init_db()
     validate_discord()
 
-    for time_range in TIME_RANGES:
+    boards = [(time_range, "") for time_range in TIME_RANGES]
+    boards += [
+        (time_range, language)
+        for language in TRENDING_LANGUAGES
+        for time_range in TIME_RANGES
+    ]
+    failures: list[tuple[str, str]] = []
+    for index, (time_range, language) in enumerate(boards):
         try:
-            process_time_range(time_range)
+            process_time_range(time_range, language)
         except Exception as exc:
-            print(f"  {time_range} failed: {exc}")
-        if time_range != TIME_RANGES[-1]:
-            time.sleep(1)
+            board = f"{time_range}/{language}" if language else time_range
+            print(f"  {board} failed: {exc}")
+            failures.append((board, str(exc)))
+        if index < len(boards) - 1:
+            time.sleep(REQUEST_DELAY)
 
-    print("\nJob completed!")
+    if STAR_REFRESH:
+        try:
+            result = stars.refresh_stars(
+                token=GITHUB_TOKEN,
+                limit=STAR_REFRESH_LIMIT,
+                days=STAR_REFRESH_DAYS,
+            )
+            print(f"\nStar refresh: {result}")
+        except Exception as exc:
+            print(f"\nStar refresh failed: {exc}")
+
+    send_failure_alert(failures)
+    print(f"\nJob completed! {len(failures)} board(s) failed." if failures else "\nJob completed!")
+    return failures
 
 
 def safe_job():
@@ -153,6 +217,7 @@ def safe_job():
         job()
     except Exception as exc:
         print(f"Job failed: {exc}")
+        send_failure_alert([("job", str(exc))])
 
 
 def run_scheduler(run_time: str = SCHEDULE_TIME, run_immediately: bool = False):
@@ -203,7 +268,7 @@ def interactive_menu():
         print("Bye!")
         sys.exit(0)
     elif choice == "1":
-        job()
+        sys.exit(1 if job() else 0)
     elif choice in ("2", "3"):
         default_time = SCHEDULE_TIME
         time_input = input(f"Schedule time (HH:MM) [{default_time}]: ").strip()
@@ -247,6 +312,11 @@ def main():
         help="Serve the historical report viewer",
     )
     parser.add_argument(
+        "--stars",
+        action="store_true",
+        help="Only refresh GitHub API star counts for recently trending repos",
+    )
+    parser.add_argument(
         "--host",
         default=WEB_HOST,
         help=f"Web viewer host (default: {WEB_HOST})",
@@ -259,15 +329,33 @@ def main():
     )
     args = parser.parse_args()
 
+    if args.stars:
+        db.init_db()
+        print(stars.refresh_stars(
+            token=GITHUB_TOKEN,
+            limit=STAR_REFRESH_LIMIT,
+            days=STAR_REFRESH_DAYS,
+        ))
+        return
+
     if len(sys.argv) == 1:
         interactive_menu()
         return
+
+    if args.now and not args.daemon and not args.web:
+        failures = job()
+        sys.exit(1 if failures else 0)
 
     if args.now and not args.daemon:
         job()
 
     if args.daemon:
         if args.web:
+            print(
+                "Note: serving the web viewer from the scheduler process. "
+                "For production, run `main.py --daemon` and a WSGI server "
+                "(see README: Deploy) as separate processes."
+            )
             start_web(args.host, args.port, background=True)
         run_scheduler(args.time, args.now)
         return

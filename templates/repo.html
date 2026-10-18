@@ -23,7 +23,12 @@
     </section>
 
     <div class="tiles">
+      {% set latest_api = repo.star_history[-1] if repo.star_history else none %}
+      {% if latest_api %}
+      <div class="tile"><div class="label">{{ t('repo_stat_current', date=latest_api.date) }}</div><div class="value">{{ "{:,}".format(latest_api.stars) }}</div></div>
+      {% else %}
       <div class="tile"><div class="label">{{ t('repo_stat_peak') }}</div><div class="value">{{ "{:,}".format(repo.peak_stars) if repo.peak_stars is not none else '—' }}</div></div>
+      {% endif %}
       <div class="tile"><div class="label">{{ t('repo_stat_best_rank') }}</div><div class="value">{{ '#' ~ best_rank if best_rank else '—' }}</div></div>
       <div class="tile"><div class="label">{{ t('repo_stat_appearances') }}</div><div class="value">{{ repo.appearances }}</div></div>
       <div class="tile"><div class="label">{{ t('repo_stat_first') }}</div><div class="value" style="font-size:16px">{{ (repo.first_seen_at or repo.first_seen)[:10] }}</div></div>
@@ -32,7 +37,7 @@
 
     {% if chart %}
     <section class="card">
-      <h2 style="font-size:14px; margin:0 0 10px; color: var(--muted); font-weight:600;">{{ t('repo_star_chart') }}</h2>
+      <h2 style="font-size:14px; margin:0 0 10px; color: var(--muted); font-weight:600;">{{ t('repo_star_chart_api') if chart.has_api else t('repo_star_chart') }}</h2>
       <div class="chart-wrap" id="chart-wrap">
         <svg class="chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="{{ t('repo_star_chart') }}">
           {% for tick in chart.y_ticks %}
@@ -70,12 +75,12 @@
         <tbody>
           {% for item in repo.history %}
           <tr>
-            <td><span class="badge plain">{{ range_labels[item.time_range] }}</span></td>
+            <td><span class="badge plain">{{ range_labels[item.time_range] }}{% if item.scope %} · {{ scope_label(item.scope) }}{% endif %}</span></td>
             <td>
-              <a href="{{ page_href('/', range=item.time_range, period=item.period_key) }}">{{ item.label }}</a>
+              <a href="{{ page_href('/', range=item.time_range, period=item.period_key, scope=item.scope) }}">{{ item.label }}</a>
               {% if item.is_new %}<span class="badge green">{{ t('badge_new') }}</span>{% endif %}
             </td>
-            <td class="num">#{{ item.rank }}</td>
+            <td class="num">#{{ item.rank }}{% if item.best_rank and item.best_rank < item.rank %} <span class="subtitle" title="{{ t('dropped_note') if not item.in_latest else '' }}">({{ t('best_rank_short', rank=item.best_rank) }})</span>{% endif %}</td>
             <td class="num">{{ "{:,}".format(item.total_stars) if item.total_stars is not none else '—' }}</td>
             <td class="num" style="color: var(--green)">{{ ('+' ~ "{:,}".format(item.stars_period)) if item.stars_period is not none else (item.stars_period_label or '—') }}</td>
           </tr>

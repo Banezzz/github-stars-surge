@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, repo_title, language, range_badges with context %}
 
+{% block head %}
+  {% if query %}<link rel="alternate" type="application/atom+xml" title="{{ t('feed_title') }}" href="/feed.xml?{{ {'q': query}|urlencode }}">{% endif %}
+{% endblock %}
+
 {% block title %}{{ (query ~ ' · ') if query }}{{ t('search_title') }}{% endblock %}
 
 {% block content %}
@@ -56,7 +60,8 @@
     {% endif %}
   {% elif results.total %}
     <p class="meta"><span>{% if browsing %}{{ t('browse_results', total="{:,}".format(results.total)) }}{% else %}{{ t('search_results', total="{:,}".format(results.total), q=query) }}{% endif %}</span>
-      {% if pages > 1 %}<span>{{ t('page_of', page=page, pages=pages) }}</span>{% endif %}</p>
+      {% if pages > 1 %}<span>{{ t('page_of', page=page, pages=pages) }}</span>{% endif %}
+      {% if query %}<a class="feed-link" href="/feed.xml?{{ {'q': query, 'language': language_filter or ''}|urlencode }}" title="{{ t('feed_title') }}">{{ icon('feed') }}{{ t('feed_search') }}</a>{% endif %}</p>
     <div class="list">
       {% for repo in results['items'] %}
         <article class="repo card no-rank">

@@ -1,0 +1,16 @@
+# Web viewer + API. Copy to /etc/systemd/system/, adjust paths and User, then:
+#   systemctl daemon-reload && systemctl enable --now ghstar-web
+[Unit]
+Description=GitHub Stars Surge web viewer
+After=network.target
+
+[Service]
+User=ghstar
+WorkingDirectory=/opt/github-stars-surge
+EnvironmentFile=-/opt/github-stars-surge/.env
+# Set TRUST_PROXY=1 in .env when nginx/caddy sits in front.
+ExecStart=/opt/github-stars-surge/.venv/bin/waitress-serve --listen=127.0.0.1:8765 --threads=8 wsgi:app
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
