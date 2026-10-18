@@ -1,217 +1,154 @@
-<!DOCTYPE html>
-<html lang="{{ html_lang }}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ t('site_title') }}</title>
-  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
-  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <link rel="icon" href="{{ url_for('static', filename='favicon-32.png') }}" type="image/png" sizes="32x32">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
-  <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
-  <meta name="theme-color" content="#0d1117">
-  <style>
-    :root {
-      --bg: #0d1117;
-      --panel: #161b22;
-      --border: #30363d;
-      --text: #e6edf3;
-      --muted: #8b949e;
-      --green: #3fb950;
-      --green-dim: #238636;
-      --link: #58a6ff;
-      --chip: #21262d;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.5;
-    }
-    a { color: var(--link); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    header {
-      border-bottom: 1px solid var(--border);
-      padding: 20px 20px 16px;
-    }
-    .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px 48px; }
-    .header-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .header-actions { display: flex; gap: 8px; flex: none; flex-wrap: wrap; }
-    .header-actions a {
-      background: var(--chip);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 14px;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-    .header-actions a:hover { border-color: var(--link); text-decoration: none; }
-    .header-actions a.active {
-      background: var(--green-dim);
-      border-color: var(--green-dim);
-    }
-    .lang-switch { display: flex; gap: 0; }
-    .lang-switch a { border-radius: 0; }
-    .lang-switch a:first-child { border-radius: 8px 0 0 8px; }
-    .lang-switch a:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
-    h1 { margin: 0 0 4px; font-size: 22px; display: flex; align-items: center; gap: 10px; }
-    .logo { width: 32px; height: 32px; border-radius: 8px; display: block; flex: none; }
-    .subtitle { color: var(--muted); margin: 0; font-size: 14px; }
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: center;
-      margin: 20px 0 8px;
-    }
-    .tabs { display: flex; gap: 8px; }
-    .tab, .nav, select, input[type="search"] {
-      background: var(--chip);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 14px;
-    }
-    input[type="search"] { min-width: 200px; flex: 1; }
-    .tab.active { background: var(--green-dim); border-color: var(--green-dim); }
-    .nav[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
-    select { min-width: 220px; }
-    .meta { color: var(--muted); font-size: 13px; margin: 8px 0 20px; }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      margin: 0 0 12px;
-    }
-    .row {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
-    }
-    .rank { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 28px; }
-    .name { font-weight: 650; font-size: 16px; }
-    .desc { color: var(--muted); margin: 6px 0 0; font-size: 14px; }
-    .stats { color: var(--muted); font-size: 13px; margin-top: 8px; }
-    .stars { color: var(--green); font-weight: 650; white-space: nowrap; }
-    .badge {
-      display: inline-block;
-      margin-left: 8px;
-      background: #1f6feb33;
-      color: #79c0ff;
-      border-radius: 999px;
-      padding: 1px 8px;
-      font-size: 12px;
-      vertical-align: middle;
-    }
-    .empty {
-      border: 1px dashed var(--border);
-      border-radius: 12px;
-      padding: 32px 20px;
-      color: var(--muted);
-      text-align: center;
-    }
-    code { background: var(--chip); padding: 2px 6px; border-radius: 6px; }
-  </style>
-</head>
-<body>
-  <header>
-    <div class="wrap header-bar" style="padding-bottom: 0;">
-      <div>
-        <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">{{ t('site_title') }}</h1>
-        <p class="subtitle">{{ t('report_subtitle') }}</p>
-      </div>
-      {% include "_header_nav.html" %}
-    </div>
-  </header>
+{% extends "base.html" %}
+{% from "_macros.html" import icon, repo_title, language with context %}
 
-  <main class="wrap">
-    <form class="controls" method="get" action="/">
-      <div class="tabs">
-        {% for range_name in ranges %}
-          <a class="tab {% if range_name == time_range %}active{% endif %}"
-             href="{{ page_href('/', range=range_name) }}">{{ range_labels[range_name] }}</a>
-        {% endfor %}
-      </div>
+{% block content %}
+  <section class="hero">
+    <h1>{{ range_labels[time_range] }}{% if report %} · {{ report.label }}{% endif %}</h1>
+    <p class="subtitle">{{ t('report_subtitle') }}</p>
+  </section>
 
-      {% if periods %}
-      <a class="nav" {% if prev_period %}href="{{ page_href('/', range=time_range, period=prev_period) }}"{% else %}aria-disabled="true"{% endif %}>{{ t('older') }}</a>
-      <select name="period" onchange="this.form.submit()">
+  <form class="toolbar" method="get" action="/">
+    <nav class="seg" aria-label="{{ t('col_board') }}">
+      {% for range_name in ranges %}
+        <a class="tab {% if range_name == time_range %}active{% endif %}"
+           href="{{ page_href('/', range=range_name) }}">{{ range_labels[range_name] }}</a>
+      {% endfor %}
+    </nav>
+
+    {% if periods %}
+    <div class="period-nav">
+      <a class="btn nav" {% if prev_period %}href="{{ page_href('/', range=time_range, period=prev_period) }}"{% else %}aria-disabled="true"{% endif %}>{{ t('older') }}</a>
+      <select name="period" onchange="this.form.submit()" aria-label="{{ t('col_period') }}">
         {% for item in periods %}
           <option value="{{ item.period_key }}" {% if item.period_key == selected %}selected{% endif %}>
             {{ item.label }}
           </option>
         {% endfor %}
       </select>
-      <a class="nav" {% if next_period %}href="{{ page_href('/', range=time_range, period=next_period) }}"{% else %}aria-disabled="true"{% endif %}>{{ t('newer') }}</a>
-      <input type="search" id="q" placeholder="{{ t('filter_placeholder') }}" oninput="filterCards()">
+      <a class="btn nav" {% if next_period %}href="{{ page_href('/', range=time_range, period=next_period) }}"{% else %}aria-disabled="true"{% endif %}>{{ t('newer') }}</a>
+    </div>
+    {% endif %}
+    <input type="hidden" name="range" value="{{ time_range }}">
+    <input type="hidden" name="lang" value="{{ lang }}">
+  </form>
+
+  {% if report %}
+    <div class="toolbar">
+      <input class="input grow" type="search" id="q" placeholder="{{ t('filter_placeholder') }}"
+             aria-label="{{ t('filter_placeholder') }}" oninput="filterCards()" autocomplete="off">
+      {% if board_languages|length > 1 %}
+      <select id="lang-filter" onchange="filterCards()" aria-label="{{ t('filter_all_languages') }}">
+        <option value="">{{ t('filter_all_languages') }}</option>
+        {% for name, count in board_languages %}
+          <option value="{{ name }}">{{ name }} ({{ count }})</option>
+        {% endfor %}
+      </select>
       {% endif %}
-      <input type="hidden" name="range" value="{{ time_range }}">
-      <input type="hidden" name="lang" value="{{ lang }}">
-    </form>
+      <select id="sort" onchange="sortCards()" aria-label="{{ t('sort_label') }}">
+        <option value="rank">{{ t('sort_rank') }}</option>
+        <option value="gain">{{ t('sort_gain') }}</option>
+        <option value="total">{{ t('sort_total') }}</option>
+      </select>
+      {% if report.new_count %}
+      <label class="toggle"><input type="checkbox" id="new-only" onchange="filterCards()">{{ t('new_only') }}</label>
+      {% endif %}
+    </div>
 
-    {% if report %}
-      <p class="meta">
-        {{ report.label }} · {{ report.repos|length }} {{ t('meta_repos') }} · {{ report.new_count }} {{ t('meta_new') }}
-        · {{ t('meta_fetched') }} {{ report.fetched_at }}
-        {% if report.source == 'discord' %}
-          · <span class="badge">{{ t('partial_archive') }}</span>
-          {{ t('discord_note') }}
-        {% endif %}
-      </p>
+    <p class="meta">
+      <span><strong>{{ report.repos|length }}</strong> {{ t('meta_repos') }}</span>
+      <span><strong>{{ report.new_count }}</strong> {{ t('meta_new') }}</span>
+      <span>{{ t('meta_fetched') }} {{ report.fetched_at|replace('T', ' ') }}</span>
+      {% if report.source == 'discord' %}
+        <span><span class="badge" style="margin-left:0">{{ t('partial_archive') }}</span> {{ t('discord_note') }}</span>
+      {% endif %}
+    </p>
 
+    <div class="list" id="board">
       {% for repo in report.repos %}
-        <article class="card" data-search="{{ repo.name }} {{ repo.language }} {{ repo.description }}">
-          <div class="row">
-            <div>
-              <span class="rank">#{{ repo.rank }}</span>
-              <a class="name" href="{{ repo.url }}" target="_blank" rel="noreferrer">{{ repo.name }}</a>
-              {% if repo.is_new %}<span class="badge">{{ t('badge_new') }}</span>{% endif %}
-              {% if repo.description %}<p class="desc">{{ repo.description }}</p>{% endif %}
-              <div class="stats">
-                {% if repo.language %}{{ repo.language }} · {% endif %}
-                {% if repo.total_stars is not none %}⭐ {{ "{:,}".format(repo.total_stars) }}{% endif %}
-                {% if repo.forks is not none %} · 🍴 {{ "{:,}".format(repo.forks) }}{% endif %}
-              </div>
+        <article class="repo card"
+                 data-search="{{ repo.name }} {{ repo.language }} {{ repo.description }}"
+                 data-lang="{{ repo.language }}"
+                 data-new="{{ 1 if repo.is_new else 0 }}"
+                 data-rank="{{ repo.rank }}"
+                 data-gain="{{ repo.stars_period if repo.stars_period is not none else -1 }}"
+                 data-total="{{ repo.total_stars if repo.total_stars is not none else -1 }}">
+          <div class="rank {% if repo.rank <= 3 %}top{% endif %}">#{{ repo.rank }}</div>
+          <div>
+            <div class="repo-title">
+              {{ repo_title(repo.name, repo.url, external=true) }}
+              {% if repo.is_new %}<span class="badge green">{{ t('badge_new') }}</span>{% endif %}
             </div>
-            <div class="stars">
-              {% if repo.stars_period is not none %}
-                +{{ "{:,}".format(repo.stars_period) }}
-                <div class="subtitle">{{ stars_label }}</div>
-              {% elif repo.stars_period_label %}
-                {{ repo.stars_period_label }}
-              {% endif %}
+            {% if repo.description %}<p class="desc">{{ repo.description }}</p>{% endif %}
+            <div class="stats">
+              {{ language(repo.language) }}
+              {% if repo.total_stars is not none %}<span class="item">{{ icon('star') }}{{ "{:,}".format(repo.total_stars) }}</span>{% endif %}
+              {% if repo.forks is not none %}<span class="item">{{ icon('fork') }}{{ "{:,}".format(repo.forks) }}</span>{% endif %}
+              {% set seen = seen_counts.get(repo.name, 1) %}
+              <a class="item" href="{{ page_href('/repo/' ~ repo.name) }}">{{ icon('history') }}{{ t('seen_times', n=seen) }}</a>
             </div>
+          </div>
+          <div class="stars gain">
+            {% if repo.stars_period is not none %}
+              <div class="gain-value">+{{ "{:,}".format(repo.stars_period) }}</div>
+              <div class="gain-label subtitle">{{ stars_label }}</div>
+              {% if max_gain %}<div class="gain-bar" aria-hidden="true"><span style="width: {{ (100 * repo.stars_period / max_gain)|round(1) }}%"></span></div>{% endif %}
+            {% elif repo.stars_period_label %}
+              <div class="gain-label">{{ repo.stars_period_label }}</div>
+            {% endif %}
           </div>
         </article>
       {% endfor %}
-    {% else %}
-      <div class="empty">
-        <p>{{ t('empty_snapshots', range=range_labels[time_range] if lang == 'zh' else time_range) }}</p>
-        <p>{{ t('empty_hint') }} <code>.venv/bin/python main.py --now</code></p>
-      </div>
-    {% endif %}
-  </main>
+    </div>
+
+    <div class="empty" id="no-match" hidden>
+      <p class="big">{{ t('no_board_match') }}</p>
+      <p><a id="search-everywhere" href="{{ page_href('/search') }}" data-template="{{ t('search_everywhere', q='__Q__') }}"></a></p>
+    </div>
+  {% else %}
+    <div class="empty">
+      <p class="big">{{ t('empty_snapshots', range=range_labels[time_range] if lang == 'zh' else time_range) }}</p>
+      <p>{{ t('empty_hint') }} <code>.venv/bin/python main.py --now</code></p>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
   <script>
     function filterCards() {
-      const q = (document.getElementById("q")?.value || "").toLowerCase();
-      document.querySelectorAll(".card").forEach((card) => {
+      const q = (document.getElementById("q")?.value || "").trim().toLowerCase();
+      const lang = document.getElementById("lang-filter")?.value || "";
+      const newOnly = document.getElementById("new-only")?.checked || false;
+      let shown = 0;
+      document.querySelectorAll("#board .card").forEach((card) => {
         const haystack = (card.getAttribute("data-search") || "").toLowerCase();
-        card.style.display = haystack.includes(q) ? "" : "none";
+        const visible = haystack.includes(q)
+          && (!lang || card.dataset.lang === lang)
+          && (!newOnly || card.dataset.new === "1");
+        card.style.display = visible ? "" : "none";
+        if (visible) shown += 1;
       });
+      const empty = document.getElementById("no-match");
+      if (!empty) return;
+      empty.hidden = shown > 0;
+      const link = document.getElementById("search-everywhere");
+      if (q) {
+        const url = new URL(link.href, location.href);
+        url.searchParams.set("q", q);
+        link.href = url.pathname + url.search;
+        link.textContent = link.dataset.template.replace("__Q__", q);
+      } else {
+        link.textContent = "";
+      }
+    }
+
+    function sortCards() {
+      const key = document.getElementById("sort").value;
+      const board = document.getElementById("board");
+      const cards = Array.from(board.children);
+      cards.sort((a, b) => key === "rank"
+        ? Number(a.dataset.rank) - Number(b.dataset.rank)
+        : Number(b.dataset[key]) - Number(a.dataset[key]) || Number(a.dataset.rank) - Number(b.dataset.rank));
+      cards.forEach((card) => board.appendChild(card));
     }
   </script>
-</body>
-</html>
+{% endblock %}

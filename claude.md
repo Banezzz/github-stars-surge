@@ -26,12 +26,22 @@ Lightweight GitHub Trending tracker. Snapshots daily / weekly / monthly repo lis
 - `api.py`: public JSON API, CORS, docs page, example prompts
 - `i18n.py`: English / Chinese UI strings and language cookie
 - `main.py`: job, Discord, CLI, scheduler
-- `templates/report.html`: week/month report page
+- `templates/base.html`: shared layout (sticky header, global search, `/` shortcut); `static/app.css` holds all shared styles
+- `templates/_macros.html`: repo title / language dot / icon macros (import `with context`)
+- `templates/report.html`: day/week/month report page
+- `templates/search.html`: global search across all boards (`db.search_repos`)
+- `templates/repo.html`: one repo's appearance history and star chart
 - `templates/api.html`: public API docs and agent prompts
 
 ## Data model
 
 One snapshot per `(time_range, period_key)`. Re-fetching the same week or month replaces that snapshot. A repo is `NEW` when it has not appeared in an earlier period of the same time range.
+
+## Search
+
+`db.search_repos` scores every unique repo in Python (name words, acronym, owner, description words) and caches the candidate list until `_data_version` changes. `/api/v1/repos?q=` keeps the older SQL `LIKE` filter.
+
+Period keys from different ranges (`2026-W40`, `2026-10-08`) do not sort chronologically as strings; order by `fetched_at` when mixing ranges.
 
 ## Commands
 

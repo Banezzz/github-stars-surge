@@ -1,5 +1,7 @@
 """SQLite snapshot storage for trending reports."""
 
+import difflib
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -364,8 +366,8 @@ def set_snapshot_source(time_range: str, period_key: str, source: str) -> None:
 REPO_SORTS = {
     "peak_stars": "peak_stars DESC, appearances DESC, r.name ASC",
     "appearances": "appearances DESC, peak_stars DESC, r.name ASC",
-    "first_seen": "first_seen ASC, r.name ASC",
-    "last_seen": "last_seen DESC, r.name ASC",
+    "first_seen": "first_seen_at ASC, r.name ASC",
+    "last_seen": "last_seen_at DESC, r.name ASC",
     "name": "r.name ASC",
 }
 
@@ -525,8 +527,12 @@ def list_unique_repos(
                     *,
                     ROW_NUMBER() OVER (
                         PARTITION BY name
-                        ORDER BY period_key DESC, fetched_at DESC
-                    ) AS rn
+                        ORDER BY fetched_at DESC, period_key DESC
+                    ) AS rn,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY name
+                        ORDER BY fetched_at ASC, period_key ASC
+                    ) AS rn_first
                 FROM filtered
             ),
             agg AS (
@@ -536,8 +542,8 @@ def list_unique_repos(
                     MAX(forks) AS peak_forks,
                     MAX(stars_period) AS peak_period_gain,
                     COUNT(*) AS appearances,
-                    MIN(period_key) AS first_seen,
-                    MAX(period_key) AS last_seen,
+                    MIN(fetched_at) AS first_seen_at,
+                    MAX(fetched_at) AS last_seen_at,
                     GROUP_CONCAT(DISTINCT time_range) AS time_ranges
                 FROM filtered
                 GROUP BY name
@@ -552,11 +558,14 @@ def list_unique_repos(
                 a.peak_forks,
                 a.peak_period_gain,
                 a.appearances,
-                a.first_seen,
-                a.last_seen,
+                f.period_key AS first_seen,
+                r.period_key AS last_seen,
+                a.first_seen_at,
+                a.last_seen_at,
                 a.time_ranges
             FROM ranked r
             JOIN agg a ON a.name = r.name
+            JOIN ranked f ON f.name = r.name AND f.rn_first = 1
             WHERE r.rn = 1
             ORDER BY {order_sql}
             LIMIT ? OFFSET ?
@@ -579,6 +588,8 @@ def list_unique_repos(
             appearances=row["appearances"],
             first_seen=row["first_seen"],
             last_seen=row["last_seen"],
+            first_seen_at=row["first_seen_at"],
+            last_seen_at=row["last_seen_at"],
             time_ranges=[
                 part for part in (row["time_ranges"] or "").split(",") if part
             ],
@@ -609,7 +620,7 @@ def get_repo_history(name: str) -> dict | None:
             FROM snapshot_repos r
             JOIN snapshots s ON s.id = r.snapshot_id
             WHERE r.name = ? COLLATE NOCASE
-            ORDER BY s.period_key DESC, s.time_range ASC
+            ORDER BY s.fetched_at DESC, s.period_key DESC, s.time_range ASC
             """,
             (name,),
         ).fetchall()
@@ -653,8 +664,10 @@ def get_repo_history(name: str) -> dict | None:
         if row["time_range"] not in ranges:
             ranges.append(row["time_range"])
 
+    # Rows are newest first by fetched_at; period keys of different ranges
+    # ("2026-W40" vs "2026-10-08") do not sort chronologically as strings.
     latest = rows[0]
-    period_keys = [row["period_key"] for row in rows]
+    earliest = rows[-1]
     return repo_card(
         {
             "name": latest["name"],
@@ -666,8 +679,253 @@ def get_repo_history(name: str) -> dict | None:
         peak_forks=peak_forks,
         peak_period_gain=peak_period_gain,
         appearances=len(appearances),
-        first_seen=min(period_keys),
-        last_seen=max(period_keys),
+        first_seen=earliest["period_key"],
+        last_seen=latest["period_key"],
+        first_seen_at=earliest["fetched_at"],
+        last_seen_at=latest["fetched_at"],
         time_ranges=ranges,
         history=appearances,
     )
+
+
+SEARCH_SORTS = ("relevance", *REPO_SORTS)
+_SPLIT_WORDS = re.compile(r"[\W_]+")
+_CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+
+def _name_words(text: str) -> list[str]:
+    """Split a repo slug into words: "ReverseEngineering-anything" -> reverse, engineering, anything."""
+    return [word for word in _SPLIT_WORDS.split(_CAMEL.sub(" ", text).lower()) if word]
+
+
+def _text_words(text: str) -> list[str]:
+    return [word for word in _SPLIT_WORDS.split(text.lower()) if word]
+
+
+def _compact(text: str) -> str:
+    return "".join(_text_words(text))
+
+
+def _token_score(token: str, repo_words, owner_words, repo_compact, desc_words, desc, language) -> int:
+    """Best match for one query token. Short tokens only count on word starts."""
+    if token in repo_words:
+        return 30
+    if any(word.startswith(token) for word in repo_words):
+        return 20
+    if len(token) >= 3 and token in repo_compact:
+        return 12
+    if token in owner_words:
+        return 15
+    if token == language:
+        return 8
+    if token in desc_words:
+        return 10
+    if len(token) >= 3 and any(word.startswith(token) for word in desc_words):
+        return 6
+    if (len(token) >= 4 or not token.isascii()) and token in desc:
+        # Substring fallback; CJK descriptions have no spaces to split on.
+        return 3
+    return 0
+
+
+def _search_features(item: dict) -> dict:
+    """Pre-split the text fields that relevance scoring looks at."""
+    owner, _, repo = item["name"].partition("/")
+    repo_words = _name_words(repo)
+    desc = (item.get("description") or "").lower()
+    return {
+        "name": item["name"].lower(),
+        "repo_words": repo_words,
+        "owner_words": _name_words(owner),
+        "repo_compact": "".join(repo_words),
+        "acronym": "".join(word[0] for word in repo_words) if len(repo_words) >= 2 else "",
+        "desc": desc,
+        "desc_words": set(_text_words(desc)),
+        "language": (item.get("language") or "").lower(),
+    }
+
+
+def _relevance(f: dict, query: str, tokens: list[str]) -> int:
+    """Score how well a repo matches; 0 means no match."""
+    query_lower = query.lower()
+    query_compact = "".join(tokens)
+    repo_compact = f["repo_compact"]
+
+    bonus = 0
+    if f["name"] == query_lower:
+        bonus += 200
+    elif repo_compact and repo_compact == query_compact:
+        bonus += 150
+    elif f["acronym"] and f["acronym"] == query_compact:
+        bonus += 100
+    elif len(query_compact) >= 3 and repo_compact.startswith(query_compact):
+        bonus += 60
+    elif len(query_compact) >= 3 and query_compact in repo_compact:
+        bonus += 40
+    if len(tokens) > 1 and query_lower in f["desc"]:
+        bonus += 20
+    if f["language"] and f["language"] == query_lower:
+        bonus += 20
+
+    scores = [
+        _token_score(
+            token,
+            f["repo_words"],
+            f["owner_words"],
+            repo_compact,
+            f["desc_words"],
+            f["desc"],
+            f["language"],
+        )
+        for token in tokens
+    ]
+    if all(scores):
+        return bonus + sum(scores)
+    # A whole-name hit (exact, compact, acronym) still counts when tokens miss.
+    return bonus if bonus >= 40 else 0
+
+
+_SEARCH_CACHE: dict[tuple, list[tuple[dict, dict]]] = {}
+_SEARCH_CACHE_SIZE = 16
+
+
+def _data_version(conn: sqlite3.Connection) -> tuple:
+    """Changes whenever a snapshot is written or replaced."""
+    row = conn.execute(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM snapshots),
+            (SELECT MAX(fetched_at) FROM snapshots),
+            (SELECT MAX(id) FROM snapshot_repos),
+            (SELECT COUNT(*) FROM snapshot_repos)
+        """
+    ).fetchone()
+    return tuple(row)
+
+
+def _search_candidates(**filters) -> list[tuple[dict, dict]]:
+    """Unique repos plus their search features, cached until the data changes."""
+    with get_conn() as conn:
+        version = _data_version(conn)
+    key = (str(DB_PATH), version, tuple(sorted(filters.items())))
+    cached = _SEARCH_CACHE.get(key)
+    if cached is not None:
+        return cached
+    items = list_unique_repos(**filters, sort="peak_stars", limit=-1)["items"]
+    candidates = [(item, _search_features(item)) for item in items]
+    if len(_SEARCH_CACHE) >= _SEARCH_CACHE_SIZE:
+        _SEARCH_CACHE.pop(next(iter(_SEARCH_CACHE)))
+    _SEARCH_CACHE[key] = candidates
+    return candidates
+
+
+def search_repos(
+    query: str,
+    time_range: str | None = None,
+    period: str | None = None,
+    language: str | None = None,
+    min_stars: int | None = None,
+    sort: str = "relevance",
+    limit: int = 1000,
+    offset: int = 0,
+) -> dict:
+    """Relevance-ranked search over every unique repo in the history.
+
+    Matches name words, acronyms (``rea`` -> reverse-engineering-anything),
+    owner, language, and description words. Tokens are AND-ed.
+    """
+    if sort not in SEARCH_SORTS:
+        raise ValueError(f"unknown sort: {sort}")
+    query = (query or "").strip()
+    tokens = [_compact(part) for part in query.split()]
+    tokens = [token for token in tokens if token]
+    if not tokens:
+        return {"total": 0, "items": []}
+
+    candidates = _search_candidates(
+        time_range=time_range,
+        period=period,
+        language=language,
+        min_stars=min_stars,
+    )
+    scored = []
+    for item, features in candidates:
+        score = _relevance(features, query, tokens)
+        if score:
+            scored.append((score, item))
+    if sort == "relevance":
+        # Stable sort keeps peak_stars order within the same score.
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+    else:
+        _sort_items(scored, sort)
+
+    page = scored[offset: offset + limit] if limit >= 0 else scored[offset:]
+    return {
+        "total": len(scored),
+        "items": [{**item, "relevance": score} for score, item in page],
+    }
+
+
+def _sort_items(scored: list[tuple[int, dict]], sort: str) -> None:
+    """Apply a REPO_SORTS order to already-matched (score, item) pairs."""
+    name = lambda pair: pair[1]["name"]
+    if sort == "name":
+        scored.sort(key=name)
+    elif sort == "first_seen":
+        scored.sort(key=name)
+        scored.sort(key=lambda pair: pair[1]["first_seen_at"] or "")
+    elif sort == "last_seen":
+        scored.sort(key=name)
+        scored.sort(key=lambda pair: pair[1]["last_seen_at"] or "", reverse=True)
+    elif sort == "appearances":
+        scored.sort(key=name)
+        scored.sort(key=lambda pair: (pair[1]["appearances"], pair[1]["peak_stars"] or 0), reverse=True)
+    # peak_stars: candidates already arrive in that order.
+
+
+def suggest_repos(query: str, limit: int = 5) -> list[dict]:
+    """Close spellings of repo names for a query that found nothing."""
+    query_compact = _compact(query)
+    if len(query_compact) < 3:
+        return []
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT name, MAX(total_stars) AS peak_stars
+            FROM snapshot_repos
+            GROUP BY name
+            """
+        ).fetchall()
+    by_key: dict[str, dict] = {}
+    for row in rows:
+        repo = row["name"].partition("/")[2] or row["name"]
+        key = _compact(repo)
+        current = by_key.get(key)
+        if current is None or (row["peak_stars"] or 0) > (current["peak_stars"] or 0):
+            by_key[key] = {"name": row["name"], "peak_stars": row["peak_stars"]}
+    matches = difflib.get_close_matches(query_compact, list(by_key), n=limit, cutoff=0.7)
+    return [by_key[key] for key in matches]
+
+
+def appearance_counts(names: list[str], time_range: str | None = None) -> dict[str, int]:
+    """How many stored boards each repo has appeared on."""
+    if not names:
+        return {}
+    placeholders = ",".join("?" for _ in names)
+    params: list = list(names)
+    range_sql = ""
+    if time_range:
+        range_sql = "AND s.time_range = ?"
+        params.append(time_range)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT r.name, COUNT(*) AS n
+            FROM snapshot_repos r
+            JOIN snapshots s ON s.id = r.snapshot_id
+            WHERE r.name IN ({placeholders}) {range_sql}
+            GROUP BY r.name
+            """,
+            params,
+        ).fetchall()
+    return {row["name"]: row["n"] for row in rows}

@@ -57,7 +57,10 @@ The viewer reads snapshots from SQLite. Use the Daily / Weekly / Monthly tabs, t
 - Monthly keys look like `2026-08`
 - Re-fetching the same week or month updates that period's snapshot instead of duplicating it
 - `NEW` means the repo had not appeared in an earlier snapshot of that same time range
-- Filter the open report by repository name or language
+- Filter the open report by name, language, or NEW only, and re-sort it by rank, star gain, or total stars
+- **Search all history** (header box or `/search`, press `/` to focus): one index over every daily / weekly / monthly board. Results are ranked by relevance: exact name, name words across `-`/`_`/camelCase, acronyms (`REA` finds `reverse-engineering-anything`), owner, then description words. CJK descriptions match by substring. Misses suggest close spellings and link to GitHub search
+- **Repo history** at `/repo/{owner}/{repo}`: peak stars, best rank, a total-stars chart, and every board appearance linked back to its report
+- Light / dark theme follows the OS setting
 - An empty scrape does not overwrite that week or month
 - Public JSON API and docs are at `/docs` (top-right **API** link)
 
@@ -90,7 +93,7 @@ curl "https://ghstar.banez.de/api/v1/repos?fields=card&limit=1000"
 | `GET /api/v1/snapshots/{range}/{period}` | One stored board |
 | `GET /api/v1/repos` | Aggregated unique repositories |
 | `GET /api/v1/repos/{owner}/{repo}` | One repo plus appearance history |
-| `GET /api/v1/search?q=` | Keyword search over name, description, language |
+| `GET /api/v1/search?q=` | Relevance-ranked search over name, acronym, owner, description, language (`sort=relevance` default) |
 | `GET /api/v1/prompts` | Example prompts for AI agents |
 
 `fields=card` returns only `name`, `description`, and `url`.

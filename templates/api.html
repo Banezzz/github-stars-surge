@@ -1,103 +1,12 @@
-<!DOCTYPE html>
-<html lang="{{ html_lang }}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ t('docs_title') }}</title>
-  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
-  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <link rel="icon" href="{{ url_for('static', filename='favicon-32.png') }}" type="image/png" sizes="32x32">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
-  <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
-  <meta name="theme-color" content="#0d1117">
+{% extends "base.html" %}
+
+{% block title %}{{ t('docs_title') }}{% endblock %}
+
+{% block head %}
   <style>
-    :root {
-      --bg: #0d1117;
-      --panel: #161b22;
-      --border: #30363d;
-      --text: #e6edf3;
-      --muted: #8b949e;
-      --green: #3fb950;
-      --green-dim: #238636;
-      --link: #58a6ff;
-      --chip: #21262d;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.55;
-    }
-    a { color: var(--link); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    header {
-      border-bottom: 1px solid var(--border);
-      padding: 20px 20px 16px;
-    }
-    .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px 64px; }
-    .header-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
-    }
-    .header-bar { flex-wrap: wrap; }
-    .header-actions { display: flex; gap: 8px; flex: none; flex-wrap: wrap; }
-    .header-actions a {
-      background: var(--chip);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 14px;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-    .header-actions a:hover { border-color: var(--link); text-decoration: none; }
-    .header-actions a.active {
-      background: var(--green-dim);
-      border-color: var(--green-dim);
-    }
-    .lang-switch { display: flex; gap: 0; }
-    .lang-switch a { border-radius: 0; }
-    .lang-switch a:first-child { border-radius: 8px 0 0 8px; }
-    .lang-switch a:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
-    h1 { margin: 0 0 4px; font-size: 22px; display: flex; align-items: center; gap: 10px; }
     h2 { margin: 36px 0 12px; font-size: 18px; }
     h3 { margin: 20px 0 8px; font-size: 15px; }
-    .logo { width: 32px; height: 32px; border-radius: 8px; display: block; flex: none; }
-    .subtitle { color: var(--muted); margin: 0; font-size: 14px; }
-    .lead { color: var(--muted); margin: 20px 0 0; }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      margin: 0 0 12px;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { text-align: left; padding: 8px 10px 8px 0; vertical-align: top; border-bottom: 1px solid var(--border); }
-    th { color: var(--muted); font-weight: 600; }
-    code, .mono {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      background: var(--chip);
-      padding: 2px 6px;
-      border-radius: 6px;
-      font-size: 13px;
-    }
-    pre {
-      background: #0b0f14;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 14px;
-      overflow: auto;
-      font-size: 13px;
-      line-height: 1.45;
-      margin: 8px 0 0;
-    }
-    pre code { background: none; padding: 0; }
+    .lead { margin: 16px 0 0; }
     .row-top {
       display: flex;
       justify-content: space-between;
@@ -105,6 +14,7 @@
       gap: 12px;
     }
     button.copy {
+      font: inherit;
       background: var(--chip);
       color: var(--text);
       border: 1px solid var(--border);
@@ -114,111 +24,101 @@
       cursor: pointer;
     }
     button.copy:hover { border-color: var(--link); }
-    .badge {
-      display: inline-block;
-      background: #1f6feb33;
-      color: #79c0ff;
-      border-radius: 999px;
-      padding: 1px 8px;
-      font-size: 12px;
-    }
+    .card .badge { margin-left: 0; }
     ul { padding-left: 20px; }
     li { margin: 6px 0; }
   </style>
-</head>
-<body>
-  <header>
-    <div class="wrap header-bar" style="padding-bottom: 0;">
-      <div>
-        <h1><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="32" height="32" alt="">{{ t('docs_heading') }}</h1>
-        <p class="subtitle">{{ t('docs_subtitle') }}</p>
-      </div>
-      {% include "_header_nav.html" %}
-    </div>
-  </header>
+{% endblock %}
 
-  <main class="wrap">
-    <p class="lead">{{ t('docs_lead') }}</p>
+{% block content %}
+  <section class="hero">
+    <h1>{{ t('docs_heading') }}</h1>
+    <p class="subtitle">{{ t('docs_subtitle') }}</p>
+  </section>
 
-    <h2>{{ t('docs_base_url') }}</h2>
-    <div class="card">
-      <p><code>{{ base_url }}</code> · {{ t('docs_auth_none') }} · <a href="/api">{{ t('docs_json_catalog') }}</a> · <a href="/api/openapi.json">OpenAPI</a></p>
-      <pre><code>curl {{ base_url }}/api/v1/overview
+  <p class="lead">{{ t('docs_lead') }}</p>
+
+  <h2>{{ t('docs_base_url') }}</h2>
+  <div class="card">
+    <p><code>{{ base_url }}</code> · {{ t('docs_auth_none') }} · <a href="/api">{{ t('docs_json_catalog') }}</a> · <a href="/api/openapi.json">OpenAPI</a></p>
+    <pre><code>curl {{ base_url }}/api/v1/overview
 curl "{{ base_url }}/api/v1/periods"
 curl "{{ base_url }}/api/v1/search?q=video+generation&amp;limit=1000"
 curl "{{ base_url }}/api/v1/repos?fields=card&amp;limit=1000"</code></pre>
-    </div>
+  </div>
 
-    <h2>{{ t('docs_repo_fields') }}</h2>
-    <div class="card">
-      <p>{{ t('docs_repo_fields_note') }}</p>
-      <table>
-        <tr><th>{{ t('docs_field') }}</th><th>{{ t('docs_meaning') }}</th></tr>
-        <tr><td><code>name</code></td><td><span class="mono">{{ t('docs_field_name') }}</span></td></tr>
-        <tr><td><code>description</code></td><td>{{ t('docs_field_description') }}</td></tr>
-        <tr><td><code>url</code></td><td>{{ t('docs_field_url') }}</td></tr>
-      </table>
-      <pre><code>{
+  <h2>{{ t('docs_repo_fields') }}</h2>
+  <div class="card">
+    <p>{{ t('docs_repo_fields_note') }}</p>
+    <table>
+      <tr><th>{{ t('docs_field') }}</th><th>{{ t('docs_meaning') }}</th></tr>
+      <tr><td><code>name</code></td><td><span class="mono">{{ t('docs_field_name') }}</span></td></tr>
+      <tr><td><code>description</code></td><td>{{ t('docs_field_description') }}</td></tr>
+      <tr><td><code>url</code></td><td>{{ t('docs_field_url') }}</td></tr>
+    </table>
+    <pre><code>{
   "name": "harry0703/MoneyPrinterTurbo",
   "description": "Generate HD short videos from a topic or keyword with an automated AI workflow.",
   "url": "https://github.com/harry0703/MoneyPrinterTurbo"
 }</code></pre>
-      <p>{{ t('docs_fields_card') }}</p>
-    </div>
+    <p>{{ t('docs_fields_card') }}</p>
+  </div>
 
-    <h2>{{ t('docs_endpoints') }}</h2>
-    <div class="card">
-      <table>
-        <tr><th>{{ t('docs_method') }}</th><th>{{ t('docs_path') }}</th><th>{{ t('docs_returns') }}</th></tr>
-        {% for item in endpoints %}
-        <tr>
-          <td><span class="badge">{{ item.method }}</span></td>
-          <td><code>{{ item.path }}</code></td>
-          <td>{{ item.description }}</td>
-        </tr>
-        {% endfor %}
-      </table>
-    </div>
+  <h2>{{ t('docs_endpoints') }}</h2>
+  <div class="card">
+    <table>
+      <tr><th>{{ t('docs_method') }}</th><th>{{ t('docs_path') }}</th><th>{{ t('docs_returns') }}</th></tr>
+      {% for item in endpoints %}
+      <tr>
+        <td><span class="badge">{{ item.method }}</span></td>
+        <td><code>{{ item.path }}</code></td>
+        <td>{{ item.description }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
 
-    <h3>{{ t('docs_boards') }}</h3>
-    <div class="card">
-      <p>{{ t('docs_boards_note') }}</p>
-      <pre><code>GET {{ base_url }}/api/v1/periods
+  <h3>{{ t('docs_boards') }}</h3>
+  <div class="card">
+    <p>{{ t('docs_boards_note') }}</p>
+    <pre><code>GET {{ base_url }}/api/v1/periods
 GET {{ base_url }}/api/v1/periods?range=weekly
 GET {{ base_url }}/api/v1/snapshots/weekly/{period}
 GET {{ base_url }}/api/v1/snapshots/monthly/{period}</code></pre>
-    </div>
+  </div>
 
-    <h3>{{ t('docs_search') }}</h3>
-    <div class="card">
-      <p>{{ t('docs_search_note') }}</p>
-      <pre><code>GET {{ base_url }}/api/v1/repos?limit=1000
+  <h3>{{ t('docs_search') }}</h3>
+  <div class="card">
+    <p>{{ t('docs_search_note') }}</p>
+    <pre><code>GET {{ base_url }}/api/v1/repos?limit=1000
 GET {{ base_url }}/api/v1/repos?limit=1000&amp;offset=0
 GET {{ base_url }}/api/v1/search?q=video+generation&amp;limit=1000
 GET {{ base_url }}/api/v1/repos/harry0703/MoneyPrinterTurbo</code></pre>
-    </div>
+  </div>
 
-    <h2>{{ t('docs_params') }}</h2>
-    <div class="card">
-      <table>
-        {% for key, value in parameters %}
-        <tr><td><code>{{ key }}</code></td><td>{{ value }}</td></tr>
-        {% endfor %}
-      </table>
-    </div>
+  <h2>{{ t('docs_params') }}</h2>
+  <div class="card">
+    <table>
+      {% for key, value in parameters %}
+      <tr><td><code>{{ key }}</code></td><td>{{ value }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
 
-    <h2>{{ t('docs_prompts') }}</h2>
-    <p class="subtitle">{{ t('docs_prompts_note') }} <a href="/api/v1/prompts"><code>/api/v1/prompts</code></a>.</p>
-    {% for item in prompts %}
-    <div class="card">
-      <div class="row-top">
-        <h3 style="margin:0;">{{ item.title }}</h3>
-        <button class="copy" type="button" data-copy="prompt-{{ item.id }}" data-label="{{ t('copy_prompt') }}" data-copied="{{ t('copied') }}">{{ t('copy_prompt') }}</button>
-      </div>
-      <pre><code id="prompt-{{ item.id }}">{{ item.prompt }}</code></pre>
+  <h2>{{ t('docs_prompts') }}</h2>
+  <p class="subtitle">{{ t('docs_prompts_note') }} <a href="/api/v1/prompts"><code>/api/v1/prompts</code></a>.</p>
+  {% for item in prompts %}
+  <div class="card">
+    <div class="row-top">
+      <h3 style="margin:0;">{{ item.title }}</h3>
+      <button class="copy" type="button" data-copy="prompt-{{ item.id }}" data-label="{{ t('copy_prompt') }}" data-copied="{{ t('copied') }}">{{ t('copy_prompt') }}</button>
     </div>
-    {% endfor %}
-  </main>
+    <pre><code id="prompt-{{ item.id }}">{{ item.prompt }}</code></pre>
+  </div>
+  {% endfor %}
+{% endblock %}
+
+{% block scripts %}
   <script>
     document.querySelectorAll("button.copy").forEach((button) => {
       button.addEventListener("click", async () => {
@@ -232,5 +132,4 @@ GET {{ base_url }}/api/v1/repos/harry0703/MoneyPrinterTurbo</code></pre>
       });
     });
   </script>
-</body>
-</html>
+{% endblock %}

@@ -136,7 +136,7 @@ def _catalog() -> dict:
             {"method": "GET", "path": "/api/v1/snapshots/{range}/{period}", "description": "One stored board"},
             {"method": "GET", "path": "/api/v1/repos", "description": "Aggregated unique repositories"},
             {"method": "GET", "path": "/api/v1/repos/{owner}/{repo}", "description": "One repo plus appearance history"},
-            {"method": "GET", "path": "/api/v1/search", "description": "Keyword search across name, description, language"},
+            {"method": "GET", "path": "/api/v1/search", "description": "Relevance-ranked search across name, acronym, description, language"},
             {"method": "GET", "path": "/api/v1/prompts", "description": "Ready-to-paste agent prompts"},
         ],
         "query_parameters": {
@@ -145,7 +145,7 @@ def _catalog() -> dict:
             "q": "Keyword tokens; all tokens must match (AND)",
             "language": "Exact GitHub language label, e.g. Python",
             "min_stars": "Minimum peak_stars for aggregated repo lists",
-            "sort": "peak_stars | appearances | first_seen | last_seen | name",
+            "sort": "peak_stars | appearances | first_seen | last_seen | name; /search also takes relevance (its default)",
             "limit": f"1-{MAX_LIMIT}, default {DEFAULT_LIMIT}. Use {MAX_LIMIT} for a full page",
             "offset": "Skip this many rows; repeat until you have collected total items",
             "fields": "Omit for full objects, or card for only name, description, url",
@@ -287,12 +287,12 @@ def api_search():
     if _failed(min_stars):
         return min_stars
 
-    sort = request.args.get("sort", "peak_stars")
-    if sort not in db.REPO_SORTS:
-        return _error(f"unknown sort '{sort}'. Use {', '.join(db.REPO_SORTS)}.")
+    sort = request.args.get("sort", "relevance")
+    if sort not in db.SEARCH_SORTS:
+        return _error(f"unknown sort '{sort}'. Use {', '.join(db.SEARCH_SORTS)}.")
 
-    result = db.list_unique_repos(
-        keyword=query,
+    result = db.search_repos(
+        query,
         time_range=time_range,
         period=request.args.get("period"),
         language=request.args.get("language"),
