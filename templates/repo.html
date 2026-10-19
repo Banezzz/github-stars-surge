@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, repo_title, language, range_badges with context %}
+
+{% block title %}{{ t('repo_title', name=repo.name if repo else name) }}{% endblock %}
+
+{% block content %}
+  {% if not repo %}
+    <section class="hero"><h1>{{ name }}</h1></section>
+    <div class="empty">
+      <p class="big">{{ t('repo_not_found', name=name) }}</p>
+      <p><a href="{{ page_href('/search', q=name) }}">{{ t('search_everywhere', q=name) }}</a></p>
+      <p><a href="https://github.com/{{ name }}" target="_blank" rel="noreferrer">{{ t('repo_on_github') }} {{ icon('external') }}</a></p>
+    </div>
+  {% else %}
+    <section class="hero">
+      <h1 class="repo-title" style="font-size: 26px;">{{ repo_title(repo.name, repo.url, external=true) }}</h1>
+      {% if repo.description %}<p class="lead">{{ repo.description }}</p>{% endif %}
+      <div class="stats">
+        {{ language(repo.language) }}
+        <span class="item">{{ range_badges(repo.time_ranges) }}</span>
+        <a class="item" href="{{ repo.url }}" target="_blank" rel="noreferrer">{{ icon('external') }}{{ t('repo_on_github') }}</a>
+      </div>
+    </section>
+
+    <div class="tiles">
+      {% set latest_api = repo.star_history[-1] if repo.star_history else none %}
+      {% if latest_api %}
+      <div class="tile"><div class="label">{{ t('repo_stat_current', date=latest_api.date) }}</div><div class="value">{{ "{:,}".format(latest_api.stars) }}</div></div>
+      {% else %}
+      <div class="tile"><div class="label">{{ t('repo_stat_peak') }}</div><div class="value">{{ "{:,}".format(repo.peak_stars) if repo.peak_stars is not none else '—' }}</div></div>
+      {% endif %}
+      <div class="tile"><div class="label">{{ t('repo_stat_best_rank') }}</div><div class="value">{{ '#' ~ best_rank if best_rank else '—' }}</div></div>
+      <div class="tile"><div class="label">{{ t('repo_stat_appearances') }}</div><div class="value">{{ repo.appearances }}</div></div>
+      <div class="tile"><div class="label">{{ t('repo_stat_first') }}</div><div class="value" style="font-size:16px">{{ (repo.first_seen_at or repo.first_seen)[:10] }}</div></div>
+      <div class="tile"><div class="label">{{ t('repo_stat_last') }}</div><div class="value" style="font-size:16px">{{ (repo.last_seen_at or repo.last_seen)[:10] }}</div></div>
+    </div>
+
+    {% if chart %}
+    <section class="card">
+      <h2 style="font-size:14px; margin:0 0 10px; color: var(--muted); font-weight:600;">{{ t('repo_star_chart_api') if chart.has_api else t('repo_star_chart') }}</h2>
+      <div class="chart-wrap" id="chart-wrap">
+        <svg class="chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="{{ t('repo_star_chart') }}">
+          {% for tick in chart.y_ticks %}
+            <line class="grid" x1="{{ chart.left }}" x2="{{ chart.width - chart.right }}" y1="{{ tick.y }}" y2="{{ tick.y }}"></line>
+            <text class="axis-label" x="{{ chart.left - 8 }}" y="{{ tick.y + 4 }}" text-anchor="end">{{ tick.label }}</text>
+          {% endfor %}
+          <text class="axis-label" x="{{ chart.left }}" y="{{ chart.height - 4 }}">{{ chart.x_first }}</text>
+          <text class="axis-label" x="{{ chart.width - chart.right }}" y="{{ chart.height - 4 }}" text-anchor="end">{{ chart.x_last }}</text>
+          <path class="area" d="{{ chart.area }}"></path>
+          <path class="line" d="{{ chart.line }}"></path>
+          {% if chart.points|length <= 40 %}
+            {% for point in chart.points %}<circle class="dot" cx="{{ point.x }}" cy="{{ point.y }}" r="3"></circle>{% endfor %}
+          {% endif %}
+          <line class="crosshair" id="chart-cross" y1="{{ chart.top }}" y2="{{ chart.baseline }}" visibility="hidden"></line>
+          <circle class="dot focus" id="chart-focus" r="5" visibility="hidden"></circle>
+          <rect class="hit" x="{{ chart.left }}" y="0" width="{{ chart.width - chart.left - chart.right }}" height="{{ chart.height }}"></rect>
+        </svg>
+        <div class="chart-tip" id="chart-tip" hidden></div>
+      </div>
+    </section>
+    {% endif %}
+
+    <h2 style="font-size:15px; margin: 24px 0 10px;">{{ t('repo_history') }}</h2>
+    <div class="card table-scroll" style="padding: 4px 16px;">
+      <table>
+        <thead>
+          <tr>
+            <th>{{ t('col_board') }}</th>
+            <th>{{ t('col_period') }}</th>
+            <th class="num">{{ t('col_rank') }}</th>
+            <th class="num">{{ t('col_stars') }}</th>
+            <th class="num">{{ t('col_gain') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in repo.history %}
+          <tr>
+            <td><span class="badge plain">{{ range_labels[item.time_range] }}{% if item.scope %} · {{ scope_label(item.scope) }}{% endif %}</span></td>
+            <td>
+              <a href="{{ page_href('/', range=item.time_range, period=item.period_key, scope=item.scope) }}">{{ item.label }}</a>
+              {% if item.is_new %}<span class="badge green">{{ t('badge_new') }}</span>{% endif %}
+            </td>
+            <td class="num">#{{ item.rank }}{% if item.best_rank and item.best_rank < item.rank %} <span class="subtitle" title="{{ t('dropped_note') if not item.in_latest else '' }}">({{ t('best_rank_short', rank=item.best_rank) }})</span>{% endif %}</td>
+            <td class="num">{{ "{:,}".format(item.total_stars) if item.total_stars is not none else '—' }}</td>
+            <td class="num" style="color: var(--green)">{{ ('+' ~ "{:,}".format(item.stars_period)) if item.stars_period is not none else (item.stars_period_label or '—') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if chart %}
+  <script>
+    (() => {
+      const points = {{ chart.points|tojson }};
+      const wrap = document.getElementById("chart-wrap");
+      const svg = wrap.querySelector("svg");
+      const tip = document.getElementById("chart-tip");
+      const cross = document.getElementById("chart-cross");
+      const focus = document.getElementById("chart-focus");
+      const hit = svg.querySelector(".hit");
+      const show = (on) => {
+        tip.hidden = !on;
+        cross.setAttribute("visibility", on ? "visible" : "hidden");
+        focus.setAttribute("visibility", on ? "visible" : "hidden");
+      };
+      hit.addEventListener("pointermove", (event) => {
+        const box = svg.getBoundingClientRect();
+        const scale = box.width / svg.viewBox.baseVal.width;
+        const x = (event.clientX - box.left) / scale;
+        let best = points[0];
+        for (const point of points) {
+          if (Math.abs(point.x - x) < Math.abs(best.x - x)) best = point;
+        }
+        cross.setAttribute("x1", best.x);
+        cross.setAttribute("x2", best.x);
+        focus.setAttribute("cx", best.x);
+        focus.setAttribute("cy", best.y);
+        tip.replaceChildren();
+        const strong = document.createElement("strong");
+        strong.textContent = "★ " + best.value.toLocaleString();
+        tip.append(strong, document.createElement("br"), best.date);
+        tip.style.left = best.x * scale + "px";
+        tip.style.top = best.y * scale + "px";
+        show(true);
+      });
+      hit.addEventListener("pointerleave", () => show(false));
+    })();
+  </script>
+  {% endif %}
+{% endblock %}

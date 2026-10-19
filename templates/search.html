@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, repo_title, language, range_badges with context %}
+
+{% block head %}
+  {% if query %}<link rel="alternate" type="application/atom+xml" title="{{ t('feed_title') }}" href="/feed.xml?{{ {'q': query}|urlencode }}">{% endif %}
+{% endblock %}
+
+{% block title %}{{ (query ~ ' · ') if query }}{{ t('search_title') }}{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <h1>{{ t('search_heading') }}</h1>
+    <p class="subtitle">{{ t('search_subtitle') }}</p>
+  </section>
+
+  <form class="toolbar" method="get" action="/search" role="search">
+    <input class="input grow" type="search" name="q" id="page-q" value="{{ query }}"
+           placeholder="{{ t('search_placeholder') }}" aria-label="{{ t('search_placeholder') }}"
+           autocomplete="off" {% if not query %}autofocus{% endif %}>
+    <select name="range" onchange="this.form.submit()" aria-label="{{ t('col_board') }}">
+      <option value="">{{ t('filter_all_ranges') }}</option>
+      {% for name in ranges %}
+        <option value="{{ name }}" {% if name == time_range %}selected{% endif %}>{{ range_labels[name] }}</option>
+      {% endfor %}
+    </select>
+    <select name="language" onchange="this.form.submit()" aria-label="{{ t('filter_all_languages') }}">
+      <option value="">{{ t('filter_all_languages') }}</option>
+      {% for item in languages %}
+        <option value="{{ item.name }}" {% if item.name == language_filter %}selected{% endif %}>{{ item.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="sort" onchange="this.form.submit()" aria-label="{{ t('sort_label') }}">
+      {% for name in sorts %}
+        {% if not (browsing and name == 'relevance') %}<option value="{{ name }}" {% if name == sort %}selected{% endif %}>{{ t('sort_' ~ name) }}</option>{% endif %}
+      {% endfor %}
+    </select>
+    <input type="hidden" name="lang" value="{{ lang }}">
+    <button class="btn btn-primary" type="submit">{{ t('search_button') }}</button>
+  </form>
+
+  {% if not query and not browsing %}
+    <p class="meta">{{ t('search_hint') }}</p>
+    <div class="tiles">
+      <div class="tile"><div class="label">{{ t('stat_unique_repos') }}</div><div class="value">{{ "{:,}".format(stats.unique_repos) }}</div></div>
+      <div class="tile"><div class="label">{{ t('stat_board_entries') }}</div><div class="value">{{ "{:,}".format(stats.snapshot_rows) }}</div></div>
+      {% for name in ranges %}
+      <div class="tile"><div class="label">{{ range_labels[name] }}</div><div class="value">{{ "{:,}".format(stats.ranges[name].snapshots) }}</div></div>
+      {% endfor %}
+    </div>
+    {% if languages %}
+      <h2 style="font-size:15px; margin: 24px 0 10px;">{{ t('search_top_languages') }}</h2>
+      <div class="chips">
+        {% for item in languages[:24] %}
+          <a class="chip" href="{{ page_href('/search', language=item.name, sort='peak_stars') }}">
+            <span class="lang-dot" style="background: {{ lang_color(item.name) }}"></span>{{ item.name }}
+            <span class="count">{{ item.repo_count }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% elif results.total %}
+    <p class="meta"><span>{% if browsing %}{{ t('browse_results', total="{:,}".format(results.total)) }}{% else %}{{ t('search_results', total="{:,}".format(results.total), q=query) }}{% endif %}</span>
+      {% if pages > 1 %}<span>{{ t('page_of', page=page, pages=pages) }}</span>{% endif %}
+      {% if query %}<a class="feed-link" href="/feed.xml?{{ {'q': query, 'language': language_filter or ''}|urlencode }}" title="{{ t('feed_title') }}">{{ icon('feed') }}{{ t('feed_search') }}</a>{% endif %}</p>
+    <div class="list">
+      {% for repo in results['items'] %}
+        <article class="repo card no-rank">
+          <div>
+            <div class="repo-title">
+              {{ repo_title(repo.name, page_href('/repo/' ~ repo.name)) }}
+              <a href="{{ repo.url }}" target="_blank" rel="noreferrer" title="{{ t('repo_on_github') }}" style="color: var(--muted); margin-left: 4px;">{{ icon('external') }}</a>
+            </div>
+            {% if repo.description %}<p class="desc">{{ repo.description }}</p>{% endif %}
+            <div class="stats">
+              {{ language(repo.language) }}
+              {% if repo.peak_stars is not none %}<span class="item" title="{{ t('peak_stars') }}">{{ icon('star') }}{{ "{:,}".format(repo.peak_stars) }}</span>{% endif %}
+              <a class="item" href="{{ page_href('/repo/' ~ repo.name) }}">{{ icon('history') }}{{ t('seen_times', n=repo.appearances) }}</a>
+              <span class="item">{{ t('last_seen') }} {{ (repo.last_seen_at or repo.last_seen)[:10] }}</span>
+              <span class="item">{{ range_badges(repo.time_ranges) }}</span>
+            </div>
+          </div>
+          <div class="gain">
+            {% if repo.peak_period_gain %}
+              <div class="gain-value">+{{ repo.peak_period_gain|compact }}</div>
+              <div class="gain-label">{{ t('peak_gain') }}</div>
+            {% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+    {% if pages > 1 %}
+    <div class="pager">
+      <a class="btn" {% if page > 1 %}href="{{ page_href('/search', q=query, range=time_range, language=language_filter, sort=sort, page=page - 1) }}"{% else %}aria-disabled="true"{% endif %}>{{ t('page_prev') }}</a>
+      <span>{{ t('page_of', page=page, pages=pages) }}</span>
+      <a class="btn" {% if page < pages %}href="{{ page_href('/search', q=query, range=time_range, language=language_filter, sort=sort, page=page + 1) }}"{% else %}aria-disabled="true"{% endif %}>{{ t('page_next') }}</a>
+    </div>
+    {% endif %}
+  {% else %}
+    <div class="empty">
+      <p class="big">{{ t('search_none', q=query or language_filter or '') }}</p>
+      <p>{{ t('search_none_hint') }}</p>
+      {% if suggestions %}
+        <p>{{ t('search_suggest') }}:
+          {% for item in suggestions %}
+            <a href="{{ page_href('/repo/' ~ item.name) }}">{{ item.name }}</a>{% if not loop.last %} · {% endif %}
+          {% endfor %}
+        </p>
+      {% endif %}
+      <p><a href="https://github.com/search?type=repositories&amp;q={{ query|urlencode }}" target="_blank" rel="noreferrer">{{ t('search_on_github', q=query) }} {{ icon('external') }}</a></p>
+    </div>
+  {% endif %}
+{% endblock %}

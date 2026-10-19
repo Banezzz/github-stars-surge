@@ -1,6 +1,7 @@
 """Fetch and parse GitHub trending repository pages."""
 
 import time
+from urllib.parse import quote
 
 import requests
 from bs4 import BeautifulSoup
@@ -10,22 +11,50 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept": "text/html",
 }
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+MAX_RETRY_AFTER = 120
+# GitHub's wording when a language genuinely has nothing trending.
+EMPTY_PAGE_MARKERS = ("don’t have any trending repositories", "don't have any trending repositories")
 
 
-def fetch_html(url: str, attempts: int = 3, timeout: int = 30) -> str:
-    """GET a page with short retries for transient GitHub failures."""
+class ScrapeError(RuntimeError):
+    """The page could not be fetched, or it no longer parses."""
+
+
+def _retry_delay(attempt: int, response: requests.Response | None, base_delay: float) -> float:
+    """Exponential backoff, or the server's Retry-After when it sends one."""
+    if response is not None:
+        retry_after = response.headers.get("Retry-After", "")
+        if retry_after.isdigit():
+            return min(int(retry_after), MAX_RETRY_AFTER)
+    return base_delay * (2 ** (attempt - 1))
+
+
+def fetch_html(
+    url: str,
+    attempts: int = 4,
+    timeout: int = 30,
+    base_delay: float = 2.0,
+    sleep=time.sleep,
+) -> str:
+    """GET a page, retrying network errors, 429 and 5xx with backoff (2s, 4s, 8s)."""
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
+        response = None
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=timeout)
-            resp.raise_for_status()
-            return resp.text
+            response = requests.get(url, headers=HEADERS, timeout=timeout)
+            if response.status_code not in RETRY_STATUSES:
+                response.raise_for_status()
+                return response.text
+            last_error = ScrapeError(f"HTTP {response.status_code} from {url}")
+        except requests.HTTPError as exc:
+            # 404 and other client errors will not get better on retry.
+            raise ScrapeError(f"{exc} ({url})") from exc
         except requests.RequestException as exc:
             last_error = exc
-            if attempt < attempts:
-                time.sleep(attempt)
-    assert last_error is not None
-    raise last_error
+        if attempt < attempts:
+            sleep(_retry_delay(attempt, response, base_delay))
+    raise ScrapeError(f"giving up on {url} after {attempts} attempts: {last_error}")
 
 
 def parse_trending_repos(html: str, github_base: str) -> list[dict]:
@@ -77,7 +106,26 @@ def parse_trending_repos(html: str, github_base: str) -> list[dict]:
     return repos
 
 
-def fetch_trending_repos(github_base: str, time_range: str = "daily") -> list[dict]:
-    """Download and parse one trending time range."""
-    url = f"{github_base}/trending?since={time_range}"
-    return parse_trending_repos(fetch_html(url), github_base)
+def trending_url(github_base: str, time_range: str = "daily", language: str = "") -> str:
+    path = f"/trending/{quote(language, safe='')}" if language else "/trending"
+    return f"{github_base}{path}?since={time_range}"
+
+
+def fetch_trending_repos(
+    github_base: str,
+    time_range: str = "daily",
+    language: str = "",
+) -> list[dict]:
+    """Download and parse one trending board (overall, or one language slug).
+
+    Raises ScrapeError when a page loads but yields no repos, which almost
+    always means GitHub changed its markup, so it is not mistaken for "quiet day".
+    """
+    url = trending_url(github_base, time_range, language)
+    html = fetch_html(url)
+    repos = parse_trending_repos(html, github_base)
+    if not repos:
+        if any(marker in html for marker in EMPTY_PAGE_MARKERS):
+            return []
+        raise ScrapeError(f"parsed 0 repos from {url}; GitHub's markup may have changed")
+    return repos

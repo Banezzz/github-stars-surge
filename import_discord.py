@@ -180,7 +180,9 @@ def collect_periods(messages: list[dict]) -> dict[tuple[str, str], dict]:
 
 def existing_keys() -> set[tuple[str, str]]:
     with db.get_conn() as conn:
-        rows = conn.execute("SELECT time_range, period_key FROM snapshots").fetchall()
+        rows = conn.execute(
+            "SELECT time_range, period_key FROM snapshots WHERE scope = ''"
+        ).fetchall()
     return {(row["time_range"], row["period_key"]) for row in rows}
 
 

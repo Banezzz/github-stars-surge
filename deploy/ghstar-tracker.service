@@ -1,0 +1,16 @@
+# Daily scraper + star refresh, separate from the web process.
+[Unit]
+Description=GitHub Stars Surge tracker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ghstar
+WorkingDirectory=/opt/github-stars-surge
+EnvironmentFile=-/opt/github-stars-surge/.env
+ExecStart=/opt/github-stars-surge/.venv/bin/python main.py --daemon
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

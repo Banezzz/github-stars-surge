@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="{{ html_lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ t('site_title') }}{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ url_for('static', filename='favicon-32.png') }}" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v=asset_version) }}">
+  <meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-bar">
+      <a class="brand" href="{{ href_reports }}">
+        <img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" width="28" height="28" alt="">
+        <span>{{ t('site_title') }}</span>
+      </a>
+      <form class="global-search" method="get" action="/search" role="search">
+        <input class="input" type="search" name="q" id="global-q"
+               value="{{ search_query|default('') }}"
+               placeholder="{{ t('search_placeholder') }}"
+               aria-label="{{ t('search_placeholder') }}" autocomplete="off">
+        <input type="hidden" name="lang" value="{{ lang }}">
+        <kbd title="{{ t('shortcut_hint') }}">/</kbd>
+      </form>
+      {% include "_header_nav.html" %}
+    </div>
+  </header>
+
+  <main class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    // "/" focuses search from anywhere that is not already a text field.
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const tag = (document.activeElement?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+      const box = document.getElementById("page-q") || document.getElementById("global-q");
+      if (!box) return;
+      event.preventDefault();
+      box.focus();
+      box.select();
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
